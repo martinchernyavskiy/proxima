@@ -1,0 +1,11 @@
+[package]
+name = "searchforge-core"
+description = "From-scratch vector search engine core: flat index, HNSW, product quantization."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+rayon = "1"
+serde = { version = "1", features = ["derive"] }
+bincode = "1"
