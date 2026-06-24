@@ -80,7 +80,8 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 - **Recall matches FAISS** at every operating point — SearchForge's HNSW graph and PQ codebooks are correct (recall is even marginally higher, e.g. 0.967 vs 0.964 at ef=64).
 - **HNSW query latency/throughput is within ~1.4–1.6× of FAISS** — e.g. 0.20 ms vs 0.125 ms p50; 34k vs 49k QPS multi-thread. Strong for a hand-written engine.
 - **PQ compresses 512 MB → 16 MB (32×)** with the same recall tradeoff as FAISS PQ.
-- **Where FAISS still wins, and why:** exact-flat throughput (FAISS uses BLAS GEMM; SearchForge does a straightforward SIMD scan — ~16×) and HNSW *build* time (FAISS parallelizes construction; SearchForge builds single-threaded — 53 s vs 441 s). Both are known, honest optimization headroom, not correctness gaps.
+- **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free): ~**12× faster** than single-threaded, bringing the SIFT1M build to the same ballpark as FAISS (~tens of seconds).
+- **Where FAISS still wins, and why:** exact-flat throughput — FAISS uses a BLAS GEMM, SearchForge a straightforward SIMD scan (~16×). That's honest, well-understood headroom (a blocked/BLAS matmul would close it), not a correctness gap.
 
 (Reproduce: `python bench/bench_sift.py`.)
 
@@ -144,7 +145,7 @@ tests/             Python binding tests (Rust unit tests live in crates/core)
 
 ## The engineering, in brief
 
-- **Hand-written HNSW** — multi-layer navigable small-world graph: construction, geometric layer assignment, the neighbor-selection diversity heuristic, greedy descent + best-first beam search; tunable `M` / `ef_construction` / `ef_search`.
+- **Hand-written HNSW** — multi-layer navigable small-world graph: construction, geometric layer assignment, the neighbor-selection diversity heuristic, greedy descent + best-first beam search; tunable `M` / `ef_construction` / `ef_search`. **Parallel construction** (rayon + per-node `RwLock`, deadlock-free) with a **lock-free query path** (one generic traversal serves both).
 - **SIMD distance kernels** — branch-free, lane-parallel accumulation that auto-vectorizes to NEON / AVX on stable Rust (no `-ffast-math`), plus a custom hasher for the graph's visited set.
 - **Product quantization** — k-means codebooks + asymmetric distance computation; 32× compression with a measured recall tradeoff.
 - **Cache-aware layout** — contiguous row-major vectors for traversal locality; rayon-parallel batch search with the GIL released.
