@@ -1,0 +1,16 @@
+[package]
+name = "searchforge-py"
+description = "Python bindings for the SearchForge engine."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+
+[lib]
+# Imported from Python as `searchforge._core`.
+name = "_core"
+crate-type = ["cdylib"]
+
+[dependencies]
+searchforge-core = { path = "../core" }
+pyo3 = { version = "0.22", features = ["extension-module"] }
+numpy = "0.22"
