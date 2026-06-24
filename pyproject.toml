@@ -1,0 +1,28 @@
+[build-system]
+requires = ["maturin>=1.5,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "searchforge"
+version = "0.1.0"
+description = "A from-scratch, GPU-accelerable vector search engine, demonstrated through semantic search."
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "MIT" }
+dependencies = [
+    "numpy>=1.24",
+]
+
+[project.optional-dependencies]
+# Generating embeddings from a corpus (text via sentence-transformers).
+embed = ["sentence-transformers>=2.2", "torch", "datasets"]
+# The semantic-search demo web app.
+demo = ["fastapi", "uvicorn[standard]", "jinja2"]
+# Benchmarking against the state of the art.
+bench = ["faiss-cpu"]
+
+[tool.maturin]
+# Workspace layout: the cdylib lives in crates/py; Python sources in python/.
+manifest-path = "crates/py/Cargo.toml"
+python-source = "python"
+module-name = "searchforge._core"
