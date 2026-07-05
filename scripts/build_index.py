@@ -12,15 +12,12 @@ from __future__ import annotations
 
 import argparse
 import json
-import sys
 import time
 from pathlib import Path
 
 import numpy as np
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
-
-from searchforge import FlatIndex, HnswIndex, Metric, PqIndex  # noqa: E402
+from searchforge import FlatIndex, HnswIndex, Metric, PqIndex
 
 
 def _add_chunked(idx, vectors, chunk: int = 50_000) -> None:

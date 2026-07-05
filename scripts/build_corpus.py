@@ -12,16 +12,11 @@ benchmark harness.
 from __future__ import annotations
 
 import argparse
-import sys
 import time
-from pathlib import Path
 
-# Make the in-repo package importable when running from a source checkout.
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
-
-from searchforge.corpus import load_wikipedia  # noqa: E402
-from searchforge.embeddings import DEFAULT_MODEL, TextEmbedder  # noqa: E402
-from searchforge.store import save_corpus  # noqa: E402
+from searchforge.corpus import load_wikipedia
+from searchforge.embeddings import DEFAULT_MODEL, TextEmbedder
+from searchforge.store import save_corpus
 
 
 def main() -> None:

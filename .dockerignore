@@ -1,0 +1,13 @@
+# Keep the build context small — everything here is regenerated in the image.
+/target
+/.venv
+/data
+/.hf
+.git
+**/__pycache__
+.pytest_cache
+*.sfidx
+*.npy
+bench/results
+docs
+tests

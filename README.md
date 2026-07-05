@@ -6,6 +6,8 @@
 
 SearchForge is an **approximate nearest-neighbor (ANN) vector search engine** built from the ground up: a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and an honest benchmark harness measuring recall / latency / memory against the exact ground truth and against FAISS.
 
+📖 **[Design writeup](docs/WRITEUP.md)** — HNSW internals, the parallel-build regression story, and the full FAISS comparison. · 🚀 **[Deploy the demo](docs/DEPLOY.md)** to a free hosted URL.
+
 > **Scope, honestly:** this project is the *search infrastructure* — the index, the search algorithms, the systems engineering and the benchmarking. Embeddings come from an off-the-shelf model (sentence-transformers); training embedding models is explicitly **not** part of the project.
 
 ---

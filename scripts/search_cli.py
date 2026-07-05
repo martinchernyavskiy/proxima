@@ -11,12 +11,8 @@
 from __future__ import annotations
 
 import argparse
-import sys
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "python"))
-
-from searchforge.search import SemanticSearch  # noqa: E402
+from searchforge.search import SemanticSearch
 
 
 def main() -> None:
