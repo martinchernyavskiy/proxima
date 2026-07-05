@@ -9,3 +9,15 @@ license.workspace = true
 rayon = "1"
 serde = { version = "1", features = ["derive"] }
 bincode = "1"
+
+[features]
+# Enables the CUDA GPU exact-search path (needs an NVIDIA toolchain). Off by
+# default so the crate builds as pure-CPU Rust everywhere.
+cuda = []
+
+[build-dependencies]
+cc = "1"
+
+[[example]]
+name = "gpu_knn"
+required-features = ["cuda"]

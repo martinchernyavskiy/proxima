@@ -42,7 +42,7 @@ Built milestone-by-milestone so it is resume-ready early and never an unfinished
 | Milestone | What | State |
 |-----------|------|-------|
 | **M0** | Exact (flat) brute-force search + embeddings + minimal demo, end-to-end | ✅ done |
-| **M1** | GPU exact search (CUDA via FFI) + speedup number | ⬜ deferred |
+| **M1** | GPU exact search (CUDA via FFI) + speedup number | 🚧 kernel + FFI written; pending validation on an NVIDIA GPU ([setup](docs/SETUP-GPU.md)) |
 | **M2** | From-scratch **HNSW** index — recall@10 vs exact, latency | ✅ done (the centerpiece) |
 | **M3** | Scale to millions + **product quantization** + FAISS comparison | ✅ done |
 | **M4** | Polished demo (1M-scale), README diagram, results tables | ✅ done |

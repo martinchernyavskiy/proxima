@@ -4,15 +4,19 @@
 //! benchmarked directly with `cargo test` / `cargo bench`. The Python bindings
 //! live in a separate crate (`searchforge-py`) and are a thin layer on top.
 //!
-//! Today it exposes the exact [`FlatIndex`] baseline; the approximate HNSW
-//! index and product quantization land here as the project progresses, all
-//! sharing the [`distance`] kernels and [`Metric`] selector.
+//! It exposes the exact [`FlatIndex`] baseline, the approximate [`Hnsw`] graph
+//! index, and product quantization ([`PqIndex`]), all sharing the [`distance`]
+//! kernels and [`Metric`] selector. The optional `cuda` feature adds a GPU
+//! exact-search path (the `gpu` module).
 
 pub mod distance;
 pub mod flat;
 pub mod hnsw;
 pub mod metric;
 pub mod pq;
+
+#[cfg(feature = "cuda")]
+pub mod gpu;
 
 pub use flat::FlatIndex;
 pub use hnsw::{Hnsw, HnswParams};
