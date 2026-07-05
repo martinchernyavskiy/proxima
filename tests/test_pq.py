@@ -84,6 +84,20 @@ def test_dim_divisibility():
         PqIndex(dim=10, m=3)  # 10 not divisible by 3
 
 
+def test_invalid_m_rejected():
+    with pytest.raises(Exception):
+        PqIndex(dim=8, m=0)  # must not divide-by-zero panic
+
+
+def test_small_train_sample_not_degenerate(data):
+    # Regression: train_sample < k (=256) must be clamped up to k so k-means
+    # isn't starved into duplicate centroids / empty clusters.
+    pq = PqIndex(dim=64, metric=Metric.L2, m=8, train_sample=50)
+    pq.train(data)
+    pq.add(data)
+    assert pq.is_trained and pq.size == len(data)
+
+
 def test_inner_product_metric(queries):
     rng = np.random.default_rng(1)
     data = _normalize(rng.standard_normal((4000, 64)).astype(np.float32))

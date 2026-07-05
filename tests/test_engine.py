@@ -7,7 +7,7 @@ numpy interop and that results agree with a numpy brute-force reference.
 import numpy as np
 import pytest
 
-from searchforge import FlatIndex, Metric
+from searchforge import FlatIndex, HnswIndex, Metric
 
 
 def _normalize(x: np.ndarray) -> np.ndarray:
@@ -98,3 +98,24 @@ def test_metric_and_metadata():
     assert idx.dim == 16
     idx.add(np.zeros((4, 16), dtype=np.float32))
     assert idx.memory_bytes == 4 * 16 * 4  # float32
+
+
+def test_non_contiguous_input_not_corrupted(data):
+    # Regression: Fortran-order / strided arrays must not be read as row-major
+    # (that silently scrambled every vector). Each stored vector must remain its
+    # own nearest neighbor, and non-contiguous queries must work too.
+    for metric in (Metric.InnerProduct, Metric.L2):
+        for cls in (FlatIndex, HnswIndex):
+            idx = cls(dim=64, metric=metric)
+            idx.add(np.asfortranarray(data))  # non-C-contiguous
+            for i in (0, 123, 2999):
+                q = np.ascontiguousarray(data[i])
+                ids, _ = idx.search(q, k=1)
+                assert ids[0] == i, (cls.__name__, metric, i)
+    # non-contiguous (strided) query
+    idx = FlatIndex(dim=64, metric=Metric.L2)
+    idx.add(data)
+    strided = np.zeros(128, dtype=np.float32)[::2]
+    strided[:] = data[42]
+    ids, _ = idx.search(strided, k=1)
+    assert ids[0] == 42
