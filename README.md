@@ -42,7 +42,7 @@ Built milestone-by-milestone so it is resume-ready early and never an unfinished
 | Milestone | What | State |
 |-----------|------|-------|
 | **M0** | Exact (flat) brute-force search + embeddings + minimal demo, end-to-end | ✅ done |
-| **M1** | GPU exact search (CUDA via FFI) + speedup number | 🚧 kernel + FFI written; pending validation on an NVIDIA GPU ([setup](docs/SETUP-GPU.md)) |
+| **M1** | GPU exact search (CUDA via FFI) + speedup number | ✅ done — **18.9× over multicore CPU** (35× single-thread), exact |
 | **M2** | From-scratch **HNSW** index — recall@10 vs exact, latency | ✅ done (the centerpiece) |
 | **M3** | Scale to millions + **product quantization** + FAISS comparison | ✅ done |
 | **M4** | Polished demo (1M-scale), README diagram, results tables | ✅ done |
@@ -86,6 +86,23 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 - **Where FAISS still wins, and why:** exact-flat throughput — FAISS uses a BLAS GEMM, SearchForge a straightforward SIMD scan (~16×). That's honest, well-understood headroom (a blocked/BLAS matmul would close it), not a correctness gap.
 
 (Reproduce: `python bench/bench_sift.py`.)
+
+### GPU exact search (CUDA)
+
+A custom CUDA k-NN kernel (one block per query, base stored transposed for
+coalesced reads, block-level top-k reduction) accelerates the exact brute-force
+baseline. RTX 4070 Ti vs. Ryzen 7 7800X3D (8 cores), 1M × 128, 2,000 queries, k=10:
+
+| | time | throughput | speedup |
+|---|-----:|-----------:|--------:|
+| CPU flat, 1 thread | 20.2 s | 99 q/s | 1× |
+| CPU flat, all cores | 10.8 s | 185 q/s | 1.9× |
+| **GPU exact (CUDA)** | **0.57 s** | **3,496 q/s** | **18.9× / 35.4×** |
+
+The GPU's top-k is cross-checked against the CPU index on every run — **exact
+agreement (1.0000)**, so it's accelerated, not approximated. (Reproduce on an
+NVIDIA machine: `cargo run --release --example gpu_knn --features cuda` — see
+[docs/SETUP-GPU.md](docs/SETUP-GPU.md).)
 
 ## Build & develop
 
