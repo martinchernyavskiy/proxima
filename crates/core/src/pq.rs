@@ -77,16 +77,18 @@ impl ProductQuantizer {
     /// Train codebooks from a training set (row-major, n * dim). k-means is run
     /// independently per subspace and the subspaces are trained in parallel.
     pub fn train(training: &[f32], dim: usize, params: PqParams) -> Self {
-        assert!(dim % params.m == 0, "dim must be divisible by m");
+        assert!(params.m >= 1, "m must be >= 1");
+        assert!(dim.is_multiple_of(params.m), "dim must be divisible by m");
         let dsub = dim / params.m;
         let k = 1usize << params.nbits;
         let n_all = training.len() / dim;
-        assert!(n_all >= k, "need at least k={k} training vectors");
+        assert!(n_all >= k, "need at least k={k} training vectors, got {n_all}");
 
-        // Optionally subsample training rows for speed.
+        // Optionally subsample training rows for speed, but never fewer than k:
+        // k-means needs at least k points to seed k distinct centroids.
         let mut rng = SplitMix(params.seed);
         let n = if params.train_sample > 0 {
-            params.train_sample.min(n_all)
+            params.train_sample.clamp(k, n_all)
         } else {
             n_all
         };
@@ -300,7 +302,7 @@ impl PqIndex {
     /// Encode and append row-major vectors (n * dim).
     pub fn add(&mut self, vectors: &[f32]) {
         let dim = self.pq.dim;
-        assert!(vectors.len() % dim == 0, "vectors length not a multiple of dim");
+        assert!(vectors.len().is_multiple_of(dim), "vectors length not a multiple of dim");
         let count = vectors.len() / dim;
         let m = self.pq.m;
         let mut new_codes = vec![0u8; count * m];

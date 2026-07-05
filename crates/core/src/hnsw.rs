@@ -238,7 +238,7 @@ impl Hnsw {
 
     /// Append row-major vectors and link them into the graph in parallel.
     pub fn add(&mut self, vectors: &[f32]) {
-        assert!(vectors.len() % self.dim == 0, "vectors length not a multiple of dim");
+        assert!(vectors.len().is_multiple_of(self.dim), "vectors length not a multiple of dim");
         let count = vectors.len() / self.dim;
         if count == 0 {
             return;

@@ -93,7 +93,7 @@ impl FlatIndex {
     /// IDs are assigned sequentially in insertion order.
     pub fn add(&mut self, vectors: &[f32]) {
         assert!(
-            vectors.len() % self.dim == 0,
+            vectors.len().is_multiple_of(self.dim),
             "vectors length {} is not a multiple of dim {}",
             vectors.len(),
             self.dim

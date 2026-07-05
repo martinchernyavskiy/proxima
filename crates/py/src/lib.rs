@@ -4,7 +4,14 @@
 //! the pure-Rust core as `&[f32]`, and releases the GIL around the native
 //! search so Python threads can run concurrently. All search logic lives in
 //! `searchforge-core`.
+//!
+//! PyO3's `#[pymethods]` macro expands to code that trips two clippy lints we
+//! can't fix in our own source — `useless_conversion` (its generated argument
+//! extraction) and `type_complexity` (the numpy-tuple return types are
+//! inherently nested) — so we allow both crate-wide. Both are cosmetic.
+#![allow(clippy::useless_conversion, clippy::type_complexity)]
 
+use std::borrow::Cow;
 use std::path::PathBuf;
 
 use numpy::ndarray::Array2;
@@ -18,6 +25,28 @@ use searchforge_core::{
     FlatIndex as CoreFlat, Hnsw as CoreHnsw, HnswParams, Metric as CoreMetric,
     PqIndex as CorePq, PqParams,
 };
+
+// Row-major (C-order) f32 view of a numpy array, copying only when necessary.
+//
+// rust-numpy's `PyReadonlyArray::as_slice()` succeeds for BOTH C- and
+// Fortran-order arrays and returns the raw buffer — for an F-order array that
+// buffer is column-major, which the row-major engine would silently misread as
+// scrambled vectors. So we gate on C-contiguity and otherwise copy in logical
+// (row) order. The common case (already C-contiguous) stays zero-copy.
+fn rows_c<'a>(a: &'a PyReadonlyArray2<'_, f32>) -> Cow<'a, [f32]> {
+    if a.is_c_contiguous() {
+        Cow::Borrowed(a.as_slice().expect("c-contiguous"))
+    } else {
+        Cow::Owned(a.as_array().iter().copied().collect())
+    }
+}
+fn vec_c<'a>(a: &'a PyReadonlyArray1<'_, f32>) -> Cow<'a, [f32]> {
+    if a.is_c_contiguous() {
+        Cow::Borrowed(a.as_slice().expect("c-contiguous"))
+    } else {
+        Cow::Owned(a.as_array().iter().copied().collect())
+    }
+}
 
 /// Distance metric, mirrored from the core enum so Python never sees Rust types.
 #[pyclass(name = "Metric", eq, eq_int)]
@@ -63,10 +92,8 @@ impl PyFlatIndex {
                 self.inner.dim()
             )));
         }
-        let slice = vectors
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("vectors must be C-contiguous float32"))?;
-        self.inner.add(slice);
+        let data = rows_c(&vectors);
+        self.inner.add(&data);
         Ok(())
     }
 
@@ -82,13 +109,11 @@ impl PyFlatIndex {
         if query.shape()[0] != self.inner.dim() {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
-        let q = query
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("query must be C-contiguous float32"))?;
+        let q = vec_c(&query);
         let mut ids = vec![0i64; k];
         let mut dists = vec![0f32; k];
         // Release the GIL: the native scan touches no Python state.
-        py.allow_threads(|| self.inner.search(q, k, &mut ids, &mut dists));
+        py.allow_threads(|| self.inner.search(&q, k, &mut ids, &mut dists));
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
@@ -108,13 +133,11 @@ impl PyFlatIndex {
         if dim != self.inner.dim() {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
-        let q = queries
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("queries must be C-contiguous float32"))?;
+        let q = rows_c(&queries);
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
         py.allow_threads(|| {
-            self.inner.search_batch(q, k, &mut ids, &mut dists, num_threads)
+            self.inner.search_batch(&q, k, &mut ids, &mut dists, num_threads)
         });
         let ids = Array2::from_shape_vec((nq, k), ids)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -184,10 +207,8 @@ impl PyHnsw {
         if vectors.shape()[1] != self.inner.dim() {
             return Err(PyValueError::new_err("vector dim mismatch"));
         }
-        let slice = vectors
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("vectors must be C-contiguous float32"))?;
-        self.inner.add(slice);
+        let data = rows_c(&vectors);
+        self.inner.add(&data);
         Ok(())
     }
 
@@ -201,13 +222,11 @@ impl PyHnsw {
         if query.shape()[0] != self.inner.dim() {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
-        let q = query
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("query must be C-contiguous float32"))?;
+        let q = vec_c(&query);
         let ef = self.ef_search;
         let mut ids = vec![0i64; k];
         let mut dists = vec![0f32; k];
-        py.allow_threads(|| self.inner.search(q, k, ef, &mut ids, &mut dists));
+        py.allow_threads(|| self.inner.search(&q, k, ef, &mut ids, &mut dists));
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
@@ -224,13 +243,11 @@ impl PyHnsw {
         if dim != self.inner.dim() {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
-        let q = queries
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("queries must be C-contiguous float32"))?;
+        let q = rows_c(&queries);
         let ef = self.ef_search;
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
-        py.allow_threads(|| self.inner.search_batch(q, k, ef, &mut ids, &mut dists, num_threads));
+        py.allow_threads(|| self.inner.search_batch(&q, k, ef, &mut ids, &mut dists, num_threads));
         let ids = Array2::from_shape_vec((nq, k), ids)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let dists = Array2::from_shape_vec((nq, k), dists)
@@ -297,7 +314,10 @@ impl PyPq {
                         train_iters = 25, train_sample = 50000, seed = 24301))]
     fn new(dim: usize, metric: Metric, m: usize, nbits: usize, train_iters: usize,
            train_sample: usize, seed: u64) -> PyResult<Self> {
-        if dim == 0 || dim % m != 0 {
+        if m == 0 {
+            return Err(PyValueError::new_err("m must be >= 1"));
+        }
+        if dim == 0 || !dim.is_multiple_of(m) {
             return Err(PyValueError::new_err("dim must be > 0 and divisible by m"));
         }
         if !(1..=8).contains(&nbits) {
@@ -316,11 +336,9 @@ impl PyPq {
         if training.shape()[1] != self.dim {
             return Err(PyValueError::new_err("training dim mismatch"));
         }
-        let slice = training
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("training must be C-contiguous float32"))?;
+        let training_data = rows_c(&training);
         let (dim, metric, params) = (self.dim, self.metric, self.params);
-        let inner = py.allow_threads(|| CorePq::train(slice, dim, metric, params));
+        let inner = py.allow_threads(|| CorePq::train(&training_data, dim, metric, params));
         self.inner = Some(inner);
         Ok(())
     }
@@ -330,14 +348,12 @@ impl PyPq {
         if vectors.shape()[1] != self.dim {
             return Err(PyValueError::new_err("vector dim mismatch"));
         }
-        let slice = vectors
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("vectors must be C-contiguous float32"))?;
+        let data = rows_c(&vectors);
         let inner = self
             .inner
             .as_mut()
             .ok_or_else(|| PyValueError::new_err("index is not trained; call train() first"))?;
-        py.allow_threads(|| inner.add(slice));
+        py.allow_threads(|| inner.add(&data));
         Ok(())
     }
 
@@ -355,12 +371,10 @@ impl PyPq {
         if query.shape()[0] != self.dim {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
-        let q = query
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("query must be C-contiguous float32"))?;
+        let q = vec_c(&query);
         let mut ids = vec![0i64; k];
         let mut dists = vec![0f32; k];
-        py.allow_threads(|| inner.search(q, k, &mut ids, &mut dists));
+        py.allow_threads(|| inner.search(&q, k, &mut ids, &mut dists));
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
@@ -381,12 +395,10 @@ impl PyPq {
         if dim != self.dim {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
-        let q = queries
-            .as_slice()
-            .map_err(|_| PyValueError::new_err("queries must be C-contiguous float32"))?;
+        let q = rows_c(&queries);
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
-        py.allow_threads(|| inner.search_batch(q, k, &mut ids, &mut dists, num_threads));
+        py.allow_threads(|| inner.search_batch(&q, k, &mut ids, &mut dists, num_threads));
         let ids = Array2::from_shape_vec((nq, k), ids)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let dists = Array2::from_shape_vec((nq, k), dists)

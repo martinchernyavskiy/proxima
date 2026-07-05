@@ -26,12 +26,12 @@ use std::path::Path;
 pub(crate) fn save_to<T: serde::Serialize>(value: &T, path: &Path) -> io::Result<()> {
     let writer = io::BufWriter::new(std::fs::File::create(path)?);
     bincode::serialize_into(writer, value)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+        .map_err(|e| io::Error::other(e.to_string()))
 }
 
 /// Deserialize an index from a file written by `save_to`.
 pub(crate) fn load_from<T: serde::de::DeserializeOwned>(path: &Path) -> io::Result<T> {
     let reader = io::BufReader::new(std::fs::File::open(path)?);
     bincode::deserialize_from(reader)
-        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))
+        .map_err(|e| io::Error::other(e.to_string()))
 }
