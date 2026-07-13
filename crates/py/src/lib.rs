@@ -48,6 +48,15 @@ fn vec_c<'a>(a: &'a PyReadonlyArray1<'_, f32>) -> Cow<'a, [f32]> {
     }
 }
 
+// Same contiguity handling as `vec_c`, for boolean filter masks.
+fn mask_c<'a>(a: &'a PyReadonlyArray1<'_, bool>) -> Cow<'a, [bool]> {
+    if a.is_c_contiguous() {
+        Cow::Borrowed(a.as_slice().expect("c-contiguous"))
+    } else {
+        Cow::Owned(a.as_array().iter().copied().collect())
+    }
+}
+
 /// Distance metric, mirrored from the core enum so Python never sees Rust types.
 #[pyclass(name = "Metric", eq, eq_int)]
 #[derive(Clone, Copy, PartialEq)]
@@ -138,6 +147,68 @@ impl PyFlatIndex {
         let mut dists = vec![0f32; nq * k];
         py.allow_threads(|| {
             self.inner.search_batch(&q, k, &mut ids, &mut dists, num_threads)
+        });
+        let ids = Array2::from_shape_vec((nq, k), ids)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let dists = Array2::from_shape_vec((nq, k), dists)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
+    }
+
+    /// Top-`k` restricted to vectors where `mask[id]` is `True`. `mask` must be
+    /// a boolean array of length `len(index)`. Exact: every vector is still
+    /// scanned, so this is real filtered search, not post-hoc reranking.
+    #[pyo3(signature = (query, mask, k = 10))]
+    fn search_filtered<'py>(
+        &self,
+        py: Python<'py>,
+        query: PyReadonlyArray1<f32>,
+        mask: PyReadonlyArray1<bool>,
+        k: usize,
+    ) -> PyResult<(Bound<'py, PyArray1<i64>>, Bound<'py, PyArray1<f32>>)> {
+        if query.shape()[0] != self.inner.dim() {
+            return Err(PyValueError::new_err("query dim mismatch"));
+        }
+        if mask.shape()[0] != self.inner.len() {
+            return Err(PyValueError::new_err(format!(
+                "mask length {} must equal index size {}", mask.shape()[0], self.inner.len()
+            )));
+        }
+        let q = vec_c(&query);
+        let m = mask_c(&mask);
+        let mut ids = vec![0i64; k];
+        let mut dists = vec![0f32; k];
+        py.allow_threads(|| self.inner.search_filtered(&q, k, &m, &mut ids, &mut dists));
+        Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
+    }
+
+    /// Batch version of `search_filtered`: the same `mask` applies to every
+    /// query in the batch.
+    #[pyo3(signature = (queries, mask, k = 10, num_threads = 0))]
+    fn search_batch_filtered<'py>(
+        &self,
+        py: Python<'py>,
+        queries: PyReadonlyArray2<f32>,
+        mask: PyReadonlyArray1<bool>,
+        k: usize,
+        num_threads: usize,
+    ) -> PyResult<(Bound<'py, PyArray2<i64>>, Bound<'py, PyArray2<f32>>)> {
+        let shape = queries.shape();
+        let (nq, dim) = (shape[0], shape[1]);
+        if dim != self.inner.dim() {
+            return Err(PyValueError::new_err("query dim mismatch"));
+        }
+        if mask.shape()[0] != self.inner.len() {
+            return Err(PyValueError::new_err(format!(
+                "mask length {} must equal index size {}", mask.shape()[0], self.inner.len()
+            )));
+        }
+        let q = rows_c(&queries);
+        let m = mask_c(&mask);
+        let mut ids = vec![0i64; nq * k];
+        let mut dists = vec![0f32; nq * k];
+        py.allow_threads(|| {
+            self.inner.search_batch_filtered(&q, k, &m, &mut ids, &mut dists, num_threads)
         });
         let ids = Array2::from_shape_vec((nq, k), ids)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
@@ -248,6 +319,73 @@ impl PyHnsw {
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
         py.allow_threads(|| self.inner.search_batch(&q, k, ef, &mut ids, &mut dists, num_threads));
+        let ids = Array2::from_shape_vec((nq, k), ids)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let dists = Array2::from_shape_vec((nq, k), dists)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
+    }
+
+    /// Top-`k` restricted to vectors where `mask[id]` is `True`. `mask` must be
+    /// a boolean array of length `len(index)`. The graph traversal still routes
+    /// through non-matching nodes to preserve navigability — only matching
+    /// nodes are returned — so a very selective mask costs more search time
+    /// (raise `ef_search` if it under-fills `k` results), not silently wrong
+    /// results.
+    #[pyo3(signature = (query, mask, k = 10))]
+    fn search_filtered<'py>(
+        &self,
+        py: Python<'py>,
+        query: PyReadonlyArray1<f32>,
+        mask: PyReadonlyArray1<bool>,
+        k: usize,
+    ) -> PyResult<(Bound<'py, PyArray1<i64>>, Bound<'py, PyArray1<f32>>)> {
+        if query.shape()[0] != self.inner.dim() {
+            return Err(PyValueError::new_err("query dim mismatch"));
+        }
+        if mask.shape()[0] != self.inner.len() {
+            return Err(PyValueError::new_err(format!(
+                "mask length {} must equal index size {}", mask.shape()[0], self.inner.len()
+            )));
+        }
+        let q = vec_c(&query);
+        let m = mask_c(&mask);
+        let ef = self.ef_search;
+        let mut ids = vec![0i64; k];
+        let mut dists = vec![0f32; k];
+        py.allow_threads(|| self.inner.search_filtered(&q, k, ef, &m, &mut ids, &mut dists));
+        Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
+    }
+
+    /// Batch version of `search_filtered`: the same `mask` applies to every
+    /// query in the batch.
+    #[pyo3(signature = (queries, mask, k = 10, num_threads = 0))]
+    fn search_batch_filtered<'py>(
+        &self,
+        py: Python<'py>,
+        queries: PyReadonlyArray2<f32>,
+        mask: PyReadonlyArray1<bool>,
+        k: usize,
+        num_threads: usize,
+    ) -> PyResult<(Bound<'py, PyArray2<i64>>, Bound<'py, PyArray2<f32>>)> {
+        let shape = queries.shape();
+        let (nq, dim) = (shape[0], shape[1]);
+        if dim != self.inner.dim() {
+            return Err(PyValueError::new_err("query dim mismatch"));
+        }
+        if mask.shape()[0] != self.inner.len() {
+            return Err(PyValueError::new_err(format!(
+                "mask length {} must equal index size {}", mask.shape()[0], self.inner.len()
+            )));
+        }
+        let q = rows_c(&queries);
+        let m = mask_c(&mask);
+        let ef = self.ef_search;
+        let mut ids = vec![0i64; nq * k];
+        let mut dists = vec![0f32; nq * k];
+        py.allow_threads(|| {
+            self.inner.search_batch_filtered(&q, k, ef, &m, &mut ids, &mut dists, num_threads)
+        });
         let ids = Array2::from_shape_vec((nq, k), ids)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let dists = Array2::from_shape_vec((nq, k), dists)
@@ -399,6 +537,75 @@ impl PyPq {
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
         py.allow_threads(|| inner.search_batch(&q, k, &mut ids, &mut dists, num_threads));
+        let ids = Array2::from_shape_vec((nq, k), ids)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        let dists = Array2::from_shape_vec((nq, k), dists)
+            .map_err(|e| PyValueError::new_err(e.to_string()))?;
+        Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
+    }
+
+    /// Top-`k` restricted to vectors where `mask[id]` is `True`. `mask` must be
+    /// a boolean array of length `len(index)`. Requires `train()` first.
+    #[pyo3(signature = (query, mask, k = 10))]
+    fn search_filtered<'py>(
+        &self,
+        py: Python<'py>,
+        query: PyReadonlyArray1<f32>,
+        mask: PyReadonlyArray1<bool>,
+        k: usize,
+    ) -> PyResult<(Bound<'py, PyArray1<i64>>, Bound<'py, PyArray1<f32>>)> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("index is not trained"))?;
+        if query.shape()[0] != self.dim {
+            return Err(PyValueError::new_err("query dim mismatch"));
+        }
+        if mask.shape()[0] != inner.len() {
+            return Err(PyValueError::new_err(format!(
+                "mask length {} must equal index size {}", mask.shape()[0], inner.len()
+            )));
+        }
+        let q = vec_c(&query);
+        let m = mask_c(&mask);
+        let mut ids = vec![0i64; k];
+        let mut dists = vec![0f32; k];
+        py.allow_threads(|| inner.search_filtered(&q, k, &m, &mut ids, &mut dists));
+        Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
+    }
+
+    /// Batch version of `search_filtered`: the same `mask` applies to every
+    /// query in the batch.
+    #[pyo3(signature = (queries, mask, k = 10, num_threads = 0))]
+    fn search_batch_filtered<'py>(
+        &self,
+        py: Python<'py>,
+        queries: PyReadonlyArray2<f32>,
+        mask: PyReadonlyArray1<bool>,
+        k: usize,
+        num_threads: usize,
+    ) -> PyResult<(Bound<'py, PyArray2<i64>>, Bound<'py, PyArray2<f32>>)> {
+        let inner = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| PyValueError::new_err("index is not trained"))?;
+        let shape = queries.shape();
+        let (nq, dim) = (shape[0], shape[1]);
+        if dim != self.dim {
+            return Err(PyValueError::new_err("query dim mismatch"));
+        }
+        if mask.shape()[0] != inner.len() {
+            return Err(PyValueError::new_err(format!(
+                "mask length {} must equal index size {}", mask.shape()[0], inner.len()
+            )));
+        }
+        let q = rows_c(&queries);
+        let m = mask_c(&mask);
+        let mut ids = vec![0i64; nq * k];
+        let mut dists = vec![0f32; nq * k];
+        py.allow_threads(|| {
+            inner.search_batch_filtered(&q, k, &m, &mut ids, &mut dists, num_threads)
+        });
         let ids = Array2::from_shape_vec((nq, k), ids)
             .map_err(|e| PyValueError::new_err(e.to_string()))?;
         let dists = Array2::from_shape_vec((nq, k), dists)

@@ -319,6 +319,24 @@ impl PqIndex {
     /// Top-`k` via ADC. `out_ids`/`out_dists` hold `k` slots, best-first.
     pub fn search(&self, query: &[f32], k: usize, out_ids: &mut [i64], out_dists: &mut [f32]) {
         assert_eq!(query.len(), self.pq.dim, "query dim mismatch");
+        self.scan(query, k, None, out_ids, out_dists);
+    }
+
+    /// Top-`k` restricted to vectors where `filter[id]` is `true`. `filter`
+    /// must have one entry per stored vector. Still scans every code (same as
+    /// unfiltered ADC search), just skips codes the filter excludes, so it
+    /// carries the same approximation cost as unfiltered PQ search — no extra
+    /// recall penalty from the filter itself.
+    pub fn search_filtered(&self, query: &[f32], k: usize, filter: &[bool], out_ids: &mut [i64],
+                           out_dists: &mut [f32]) {
+        assert_eq!(query.len(), self.pq.dim, "query dim mismatch");
+        assert_eq!(filter.len(), self.n, "filter length {} must equal index size {}",
+                   filter.len(), self.n);
+        self.scan(query, k, Some(filter), out_ids, out_dists);
+    }
+
+    fn scan(&self, query: &[f32], k: usize, filter: Option<&[bool]>, out_ids: &mut [i64],
+           out_dists: &mut [f32]) {
         if k == 0 {
             return;
         }
@@ -327,6 +345,11 @@ impl PqIndex {
 
         let mut heap: BinaryHeap<Cand> = BinaryHeap::with_capacity(k + 1);
         for (i, code) in self.codes.chunks_exact(self.pq.m).enumerate() {
+            if let Some(f) = filter {
+                if !f[i] {
+                    continue;
+                }
+            }
             // Approximate key = sum of per-subspace table lookups.
             let mut key = 0.0f32;
             for sub in 0..self.pq.m {
@@ -360,6 +383,20 @@ impl PqIndex {
     /// Batch search, parallelized across queries.
     pub fn search_batch(&self, queries: &[f32], k: usize, out_ids: &mut [i64],
                         out_dists: &mut [f32], num_threads: usize) {
+        self.search_batch_impl(queries, k, None, out_ids, out_dists, num_threads);
+    }
+
+    /// Batch version of [`PqIndex::search_filtered`]: the same `filter` is
+    /// applied to every query in the batch.
+    pub fn search_batch_filtered(&self, queries: &[f32], k: usize, filter: &[bool],
+                                 out_ids: &mut [i64], out_dists: &mut [f32], num_threads: usize) {
+        assert_eq!(filter.len(), self.n, "filter length {} must equal index size {}",
+                   filter.len(), self.n);
+        self.search_batch_impl(queries, k, Some(filter), out_ids, out_dists, num_threads);
+    }
+
+    fn search_batch_impl(&self, queries: &[f32], k: usize, filter: Option<&[bool]>,
+                        out_ids: &mut [i64], out_dists: &mut [f32], num_threads: usize) {
         if k == 0 {
             return;
         }
@@ -370,7 +407,7 @@ impl PqIndex {
                 .zip(out_dists.par_chunks_mut(k))
                 .enumerate()
                 .for_each(|(qi, (ids, dists))| {
-                    self.search(&queries[qi * dim..(qi + 1) * dim], k, ids, dists);
+                    self.scan(&queries[qi * dim..(qi + 1) * dim], k, filter, ids, dists);
                 });
         };
         if num_threads == 0 {
@@ -450,5 +487,52 @@ mod tests {
         // codes are n*m bytes; raw is n*dim*4 bytes -> dim*4/m = 64*4/8 = 32x.
         assert_eq!(pq.codes.len(), n * 8);
         assert!(pq.raw_bytes() as f64 / (n * 8) as f64 > 30.0);
+    }
+
+    #[test]
+    fn filtered_search_only_returns_matching_ids_and_recall_holds() {
+        let (n, dim, k) = (3000usize, 32usize, 10usize);
+        let data = gen(n, dim, 1);
+        let params = PqParams { m: 8, train_iters: 20, train_sample: 0, ..Default::default() };
+        let mut pq = PqIndex::train(&data, dim, Metric::L2, params);
+        pq.add(&data);
+        let mut flat = FlatIndex::new(dim, Metric::L2);
+        flat.add(&data);
+
+        let filter: Vec<bool> = (0..n).map(|i| i % 4 == 0).collect(); // 25% pass
+        let queries = gen(100, dim, 77);
+        let mut hit = 0usize;
+        for qi in 0..100 {
+            let q = &queries[qi * dim..(qi + 1) * dim];
+            let (mut pids, mut pd) = (vec![0i64; k], vec![0f32; k]);
+            pq.search_filtered(q, k, &filter, &mut pids, &mut pd);
+            for &id in &pids {
+                assert!(id < 0 || filter[id as usize], "result {id} must satisfy the filter");
+            }
+            let (mut fids, mut fd) = (vec![0i64; k], vec![0f32; k]);
+            flat.search_filtered(q, k, &filter, &mut fids, &mut fd);
+            let truth: std::collections::HashSet<i64> = fids.into_iter().collect();
+            for id in pids {
+                if id >= 0 && truth.contains(&id) {
+                    hit += 1;
+                }
+            }
+        }
+        let r = hit as f64 / (100 * k) as f64;
+        // Filtering costs nothing extra for PQ (still a full scan over codes),
+        // so filtered recall should be in the same ballpark as unfiltered PQ.
+        assert!(r > 0.2, "filtered recall@10 was {r:.3}");
+    }
+
+    #[test]
+    #[should_panic(expected = "filter length")]
+    fn filtered_search_rejects_wrong_length_filter() {
+        let (n, dim) = (500usize, 16usize);
+        let data = gen(n, dim, 9);
+        let mut pq = PqIndex::train(&data, dim, Metric::L2, PqParams { m: 4, ..Default::default() });
+        pq.add(&data);
+        let bad_filter = vec![true; n - 1];
+        let (mut ids, mut d) = (vec![0i64; 5], vec![0f32; 5]);
+        pq.search_filtered(&gen(1, dim, 2), 5, &bad_filter, &mut ids, &mut d);
     }
 }

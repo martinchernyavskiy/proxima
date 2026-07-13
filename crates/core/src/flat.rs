@@ -108,8 +108,23 @@ impl FlatIndex {
     pub fn search(&self, query: &[f32], k: usize, out_ids: &mut [i64], out_dists: &mut [f32]) {
         assert_eq!(query.len(), self.dim, "query dim mismatch");
         match self.metric {
-            Metric::L2 => self.scan::<true>(query, k, out_ids, out_dists),
-            Metric::InnerProduct => self.scan::<false>(query, k, out_ids, out_dists),
+            Metric::L2 => self.scan::<true>(query, k, None, out_ids, out_dists),
+            Metric::InnerProduct => self.scan::<false>(query, k, None, out_ids, out_dists),
+        }
+    }
+
+    /// Top-`k` restricted to vectors where `filter[id]` is `true`. `filter` must
+    /// have one entry per stored vector (`filter.len() == self.len()`). Exact:
+    /// every vector is still scanned, so this is a real filtered nearest-
+    /// neighbor search, not a post-hoc reranking of an unfiltered top-k.
+    pub fn search_filtered(&self, query: &[f32], k: usize, filter: &[bool], out_ids: &mut [i64],
+                           out_dists: &mut [f32]) {
+        assert_eq!(query.len(), self.dim, "query dim mismatch");
+        assert_eq!(filter.len(), self.n, "filter length {} must equal index size {}",
+                   filter.len(), self.n);
+        match self.metric {
+            Metric::L2 => self.scan::<true>(query, k, Some(filter), out_ids, out_dists),
+            Metric::InnerProduct => self.scan::<false>(query, k, Some(filter), out_ids, out_dists),
         }
     }
 
@@ -119,6 +134,7 @@ impl FlatIndex {
         &self,
         query: &[f32],
         k: usize,
+        filter: Option<&[bool]>,
         out_ids: &mut [i64],
         out_dists: &mut [f32],
     ) {
@@ -127,6 +143,11 @@ impl FlatIndex {
         }
         let mut heap: BinaryHeap<Cand> = BinaryHeap::with_capacity(k + 1);
         for (i, v) in self.data.chunks_exact(self.dim).enumerate() {
+            if let Some(f) = filter {
+                if !f[i] {
+                    continue;
+                }
+            }
             let key = if L2 { l2_sqr(query, v) } else { -inner_product(query, v) };
             if heap.len() < k {
                 heap.push(Cand { key, id: i as i64 });
@@ -174,6 +195,37 @@ impl FlatIndex {
                 .enumerate()
                 .for_each(|(qi, (ids, dists))| {
                     self.search(&queries[qi * dim..(qi + 1) * dim], k, ids, dists);
+                });
+        };
+        if num_threads == 0 {
+            run();
+        } else {
+            let pool = rayon::ThreadPoolBuilder::new()
+                .num_threads(num_threads)
+                .build()
+                .expect("failed to build rayon pool");
+            pool.install(run);
+        }
+    }
+
+    /// Batch version of [`FlatIndex::search_filtered`]: the same `filter` is
+    /// applied to every query in the batch (the common case — e.g. "search
+    /// within category X" for many queries at once).
+    pub fn search_batch_filtered(&self, queries: &[f32], k: usize, filter: &[bool],
+                                 out_ids: &mut [i64], out_dists: &mut [f32], num_threads: usize) {
+        assert_eq!(filter.len(), self.n, "filter length {} must equal index size {}",
+                   filter.len(), self.n);
+        if k == 0 {
+            return;
+        }
+        let dim = self.dim;
+        let mut run = || {
+            out_ids
+                .par_chunks_mut(k)
+                .zip(out_dists.par_chunks_mut(k))
+                .enumerate()
+                .for_each(|(qi, (ids, dists))| {
+                    self.search_filtered(&queries[qi * dim..(qi + 1) * dim], k, filter, ids, dists);
                 });
         };
         if num_threads == 0 {
@@ -286,5 +338,62 @@ mod tests {
         idx.search(&[0.0, 0.0, 0.0, 0.0], 5, &mut ids, &mut dists);
         assert_eq!(ids[0], 0);
         assert_eq!(&ids[2..], &[-1, -1, -1], "trailing ids padded with -1");
+    }
+
+    #[test]
+    fn filtered_search_only_returns_matching_ids_and_matches_reference() {
+        let (n, dim, k) = (2000usize, 24usize, 10usize);
+        let data = gen(n, dim, 11);
+        let q = gen(1, dim, 456);
+        let mut idx = FlatIndex::new(dim, Metric::InnerProduct);
+        idx.add(&data);
+
+        // Filter: keep only even ids.
+        let filter: Vec<bool> = (0..n).map(|i| i % 2 == 0).collect();
+        let mut ids = vec![0i64; k];
+        let mut dists = vec![0f32; k];
+        idx.search_filtered(&q, k, &filter, &mut ids, &mut dists);
+
+        for &id in &ids {
+            assert!(id >= 0 && id % 2 == 0, "result {id} must satisfy the filter");
+        }
+        for j in 1..k {
+            assert!(dists[j] <= dists[j - 1] + 1e-4, "descending IP similarity");
+        }
+
+        // Independent reference: brute-force over only the even-id subset.
+        let mut scored: Vec<(i64, f32)> = (0..n)
+            .filter(|i| i % 2 == 0)
+            .map(|i| (i as i64, inner_product(&q, &data[i * dim..(i + 1) * dim])))
+            .collect();
+        scored.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let expect: std::collections::HashSet<i64> = scored[..k].iter().map(|(id, _)| *id).collect();
+        let got: std::collections::HashSet<i64> = ids.into_iter().collect();
+        assert_eq!(got, expect, "filtered top-k must match a brute-force scan of only the filtered subset");
+    }
+
+    #[test]
+    fn filtered_search_pads_when_fewer_matches_than_k() {
+        let dim = 4;
+        let mut idx = FlatIndex::new(dim, Metric::L2);
+        idx.add(&[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0]); // 3 vectors
+        let filter = [true, false, false]; // only id 0 passes
+        let mut ids = vec![0i64; 5];
+        let mut dists = vec![0f32; 5];
+        idx.search_filtered(&[0.0, 0.0, 0.0, 0.0], 5, &filter, &mut ids, &mut dists);
+        assert_eq!(ids[0], 0);
+        assert_eq!(&ids[1..], &[-1, -1, -1, -1], "only one match exists; rest padded");
+    }
+
+    #[test]
+    #[should_panic(expected = "filter length")]
+    fn filtered_search_rejects_wrong_length_filter() {
+        let dim = 4;
+        let mut idx = FlatIndex::new(dim, Metric::L2);
+        idx.add(&[0.0, 0.0, 0.0, 0.0]);
+        let bad_filter = [true, true]; // wrong length (index has 1 vector)
+        let mut ids = vec![0i64; 1];
+        let mut dists = vec![0f32; 1];
+        idx.search_filtered(&[0.0, 0.0, 0.0, 0.0], 1, &bad_filter, &mut ids, &mut dists);
     }
 }

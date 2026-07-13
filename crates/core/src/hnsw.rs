@@ -306,7 +306,8 @@ impl Hnsw {
         let mut entry_points = vec![cur];
         let top = level.min(max_level);
         for lc in (0..=top).rev() {
-            let candidates = self.search_layer(&graph, v, &entry_points, self.params.ef_construction, lc);
+            let candidates =
+                self.search_layer(&graph, v, &entry_points, self.params.ef_construction, lc, None);
             let cap = if lc == 0 { self.m_max0 } else { self.m_max };
             let selected = self.select_neighbors(&candidates, cap);
             for &nb in &selected {
@@ -365,19 +366,35 @@ impl Hnsw {
         }
     }
 
-    // Best-first beam search on a single layer; returns up to `ef` nearest nodes.
-    fn search_layer<G: Graph>(&self, g: &G, q: &[f32], entry: &[u32], ef: usize, layer: usize)
-                              -> Vec<Neighbor> {
+    // Best-first beam search on a single layer; returns up to `ef` nearest nodes
+    // that pass `filter` (or all nodes, if `filter` is `None`).
+    //
+    // A node's *expansion* (whether we visit its neighbors) is decided purely by
+    // distance, exactly as in the unfiltered search; its *admission* into the
+    // result set `w` additionally requires the filter. This lets the traversal
+    // route through non-matching nodes to reach matching ones beyond them,
+    // rather than treating excluded nodes as absent from the graph — the
+    // standard technique for combining ANN search with attribute filtering.
+    // With `filter = None` this is byte-for-byte the unfiltered algorithm (the
+    // `passes` check is always true), so unfiltered search is unaffected.
+    fn search_layer<G: Graph>(&self, g: &G, q: &[f32], entry: &[u32], ef: usize, layer: usize,
+                              filter: Option<&[bool]>) -> Vec<Neighbor> {
         let mut visited: VisitedSet =
             HashSet::with_capacity_and_hasher(ef * 4, BuildHasherDefault::default());
         let mut candidates: BinaryHeap<std::cmp::Reverse<Neighbor>> = BinaryHeap::new();
         let mut w: BinaryHeap<Neighbor> = BinaryHeap::new();
+        let passes = |id: u32| match filter {
+            Some(f) => f[id as usize],
+            None => true,
+        };
 
         for &e in entry {
             if visited.insert(e) {
                 let d = self.key(q, self.vec_at(e));
                 candidates.push(std::cmp::Reverse(Neighbor { dist: d, id: e }));
-                w.push(Neighbor { dist: d, id: e });
+                if passes(e) {
+                    w.push(Neighbor { dist: d, id: e });
+                }
             }
         }
         while w.len() > ef {
@@ -395,9 +412,11 @@ impl Hnsw {
                     let worst = w.peek().map(|n| n.dist).unwrap_or(f32::MAX);
                     if d < worst || w.len() < ef {
                         candidates.push(std::cmp::Reverse(Neighbor { dist: d, id: nb }));
-                        w.push(Neighbor { dist: d, id: nb });
-                        if w.len() > ef {
-                            w.pop();
+                        if passes(nb) {
+                            w.push(Neighbor { dist: d, id: nb });
+                            if w.len() > ef {
+                                w.pop();
+                            }
                         }
                     }
                 }
@@ -430,6 +449,27 @@ impl Hnsw {
     /// Lock-free: reads the plain adjacency lists directly.
     pub fn search(&self, query: &[f32], k: usize, ef: usize, out_ids: &mut [i64],
                   out_dists: &mut [f32]) {
+        self.search_impl(query, k, ef, None, out_ids, out_dists);
+    }
+
+    /// Top-`k` restricted to vectors where `filter[id]` is `true`. `filter`
+    /// must have one entry per stored vector (`filter.len() == self.len()`).
+    ///
+    /// The graph traversal still expands through non-matching nodes — only
+    /// matching nodes are admitted into the result set — so a selective filter
+    /// costs more distance evaluations (more of the graph gets explored)
+    /// rather than silently starving the result set. `ef` is the same
+    /// recall/latency dial as unfiltered search: raise it if a selective
+    /// filter returns fewer than `k` results.
+    pub fn search_filtered(&self, query: &[f32], k: usize, ef: usize, filter: &[bool],
+                          out_ids: &mut [i64], out_dists: &mut [f32]) {
+        assert_eq!(filter.len(), self.n, "filter length {} must equal index size {}",
+                   filter.len(), self.n);
+        self.search_impl(query, k, ef, Some(filter), out_ids, out_dists);
+    }
+
+    fn search_impl(&self, query: &[f32], k: usize, ef: usize, filter: Option<&[bool]>,
+                  out_ids: &mut [i64], out_dists: &mut [f32]) {
         assert_eq!(query.len(), self.dim, "query dim mismatch");
         if k == 0 {
             return;
@@ -454,7 +494,7 @@ impl Hnsw {
             cur = self.greedy_descend(&graph, query, cur, lc);
         }
         let ef = ef.max(k);
-        let mut w = self.search_layer(&graph, query, &[cur], ef, 0);
+        let mut w = self.search_layer(&graph, query, &[cur], ef, 0, filter);
         w.sort_unstable();
 
         let take = k.min(w.len());
@@ -471,6 +511,25 @@ impl Hnsw {
     /// Batch search, parallelized across queries with rayon.
     pub fn search_batch(&self, queries: &[f32], k: usize, ef: usize, out_ids: &mut [i64],
                         out_dists: &mut [f32], num_threads: usize) {
+        self.search_batch_impl(queries, k, ef, None, out_ids, out_dists, num_threads);
+    }
+
+    /// Batch version of [`Hnsw::search_filtered`]: the same `filter` is applied
+    /// to every query in the batch.
+    // Adding `ef` and `filter` to the unfiltered signature pushes this past
+    // clippy's default arity threshold; a named-options struct would be
+    // over-engineering for an internal, already fully-documented method.
+    #[allow(clippy::too_many_arguments)]
+    pub fn search_batch_filtered(&self, queries: &[f32], k: usize, ef: usize, filter: &[bool],
+                                out_ids: &mut [i64], out_dists: &mut [f32], num_threads: usize) {
+        assert_eq!(filter.len(), self.n, "filter length {} must equal index size {}",
+                   filter.len(), self.n);
+        self.search_batch_impl(queries, k, ef, Some(filter), out_ids, out_dists, num_threads);
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn search_batch_impl(&self, queries: &[f32], k: usize, ef: usize, filter: Option<&[bool]>,
+                        out_ids: &mut [i64], out_dists: &mut [f32], num_threads: usize) {
         if k == 0 {
             return;
         }
@@ -481,7 +540,7 @@ impl Hnsw {
                 .zip(out_dists.par_chunks_mut(k))
                 .enumerate()
                 .for_each(|(qi, (ids, dists))| {
-                    self.search(&queries[qi * dim..(qi + 1) * dim], k, ef, ids, dists);
+                    self.search_impl(&queries[qi * dim..(qi + 1) * dim], k, ef, filter, ids, dists);
                 });
         };
         if num_threads == 0 {
@@ -589,5 +648,69 @@ mod tests {
         h.search(&[1.0, 0.0, 0.0, 0.0], 5, 16, &mut ids, &mut d);
         assert_eq!(ids[0], 0);
         assert_eq!(ids[2], -1); // only 2 nodes -> padded
+    }
+
+    #[test]
+    fn filtered_search_only_returns_matching_ids() {
+        let (n, dim, k, ef) = (5000usize, 32usize, 10usize, 100usize);
+        let data = gen(n, dim, 1);
+        let mut hnsw = Hnsw::new(dim, Metric::InnerProduct, HnswParams::default());
+        hnsw.add(&data);
+
+        // ~10% of ids pass — a genuinely selective filter, not a near-no-op.
+        let filter: Vec<bool> = (0..n).map(|i| i % 10 == 0).collect();
+        let queries = gen(50, dim, 42);
+        for qi in 0..50 {
+            let q = &queries[qi * dim..(qi + 1) * dim];
+            let (mut ids, mut d) = (vec![0i64; k], vec![0f32; k]);
+            hnsw.search_filtered(q, k, ef, &filter, &mut ids, &mut d);
+            for &id in &ids {
+                if id >= 0 {
+                    assert!(filter[id as usize], "result id {id} must satisfy the filter");
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn filtered_search_recall_vs_exact_filtered_ground_truth() {
+        let (n, dim, k, ef) = (5000usize, 32usize, 10usize, 200usize);
+        let data = gen(n, dim, 3);
+        let mut hnsw = Hnsw::new(dim, Metric::L2, HnswParams { ef_search: ef, ..Default::default() });
+        hnsw.add(&data);
+        let mut flat = FlatIndex::new(dim, Metric::L2);
+        flat.add(&data);
+
+        let filter: Vec<bool> = (0..n).map(|i| i % 5 == 0).collect(); // 20% pass
+        let queries = gen(100, dim, 7);
+        let mut hit = 0usize;
+        let mut total = 0usize;
+        for qi in 0..100 {
+            let q = &queries[qi * dim..(qi + 1) * dim];
+            let (mut hids, mut hd) = (vec![0i64; k], vec![0f32; k]);
+            hnsw.search_filtered(q, k, ef, &filter, &mut hids, &mut hd);
+            let (mut fids, mut fd) = (vec![0i64; k], vec![0f32; k]);
+            flat.search_filtered(q, k, &filter, &mut fids, &mut fd);
+            let truth: std::collections::HashSet<i64> = fids.into_iter().collect();
+            for id in hids {
+                if id >= 0 && truth.contains(&id) {
+                    hit += 1;
+                }
+            }
+            total += k;
+        }
+        let r = hit as f64 / total as f64;
+        assert!(r > 0.9, "filtered recall@10 was {r:.3}, expected > 0.9");
+    }
+
+    #[test]
+    #[should_panic(expected = "filter length")]
+    fn filtered_search_rejects_wrong_length_filter() {
+        let (n, dim) = (100usize, 8usize);
+        let mut h = Hnsw::new(dim, Metric::L2, HnswParams::default());
+        h.add(&gen(n, dim, 1));
+        let bad_filter = vec![true; n - 1]; // wrong length
+        let (mut ids, mut d) = (vec![0i64; 5], vec![0f32; 5]);
+        h.search_filtered(&gen(1, dim, 2), 5, 64, &bad_filter, &mut ids, &mut d);
     }
 }
