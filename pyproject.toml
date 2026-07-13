@@ -18,8 +18,8 @@ dependencies = [
 embed = ["sentence-transformers>=2.2", "torch", "datasets"]
 # The semantic-search demo web app.
 demo = ["fastapi", "uvicorn[standard]", "jinja2"]
-# Benchmarking against the state of the art.
-bench = ["faiss-cpu"]
+# Benchmarking against the state of the art, and plotting the results.
+bench = ["faiss-cpu", "matplotlib"]
 
 [tool.maturin]
 # Workspace layout: the cdylib lives in crates/py; Python sources in python/.

@@ -14,22 +14,7 @@ SearchForge is an **approximate nearest-neighbor (ANN) vector search engine** bu
 
 ## Architecture
 
-```
-                Python  ──────────────────────────────────────────┐
-  corpus ──▶ embeddings (sentence-transformers) ──▶ float32 vectors │
-                                                                    │  numpy
-                                                          ┌─────────▼─────────┐
-                                                          │  searchforge._core │   PyO3 + rust-numpy
-                                                          └─────────┬─────────┘
-                Rust  ────────────────────────────────────────────│────────────
-                                                          ┌─────────▼─────────┐
-                                                          │  searchforge-core │   pure-Rust engine
-                                                          │  • FlatIndex (exact, ground truth)
-                                                          │  • HNSW graph index
-                                                          │  • Product Quantization
-                                                          │  • SIMD distance kernels + save/load
-                                                          └────────────────────┘
-```
+![SearchForge architecture: Python orchestration → PyO3 bindings → Rust core (FlatIndex / HnswIndex / PqIndex / distance kernels), with a CUDA satellite accelerating exact search and FAISS as an external comparison baseline](docs/assets/architecture.svg)
 
 - **`crates/core`** — the engine, pure Rust, no Python dependency. Directly `cargo test`-able and benchmarkable.
 - **`crates/py`** — thin [PyO3](https://pyo3.rs) bindings exposing the engine to Python as `searchforge._core` (built with [maturin](https://www.maturin.rs)). Releases the GIL around native search.
@@ -62,6 +47,8 @@ Apple M3 Pro · 100k Wikipedia (Simple English) articles · 384-dim embeddings �
 
 **HNSW reaches 99.6% recall@10 at 0.70 ms p50 — ~6× faster than exact single-threaded — and sustains 30k+ QPS at 97% recall.** `ef_search` is the recall/latency dial. (Reproduce: `python bench/run_bench.py --corpus data/wiki_simple`.)
 
+![HNSW's recall/latency dial vs. exact search on 100k Wikipedia articles](docs/assets/recall_latency_wiki.svg)
+
 ### SIFT1M — head-to-head vs FAISS
 
 The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact ground truth), run against [FAISS](https://github.com/facebookresearch/faiss) on identical data, queries, and ground truth. Apple M3 Pro, k=10, 1,000 queries.
@@ -85,7 +72,9 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 - **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free): ~**12× faster** than single-threaded, bringing the SIFT1M build to the same ballpark as FAISS (~tens of seconds).
 - **Where FAISS still wins, and why:** exact-flat throughput — FAISS uses a BLAS GEMM, SearchForge a straightforward SIMD scan (~16×). That's honest, well-understood headroom (a blocked/BLAS matmul would close it), not a correctness gap.
 
-(Reproduce: `python bench/bench_sift.py`.)
+![SIFT1M recall vs. latency: SearchForge HNSW vs. FAISS HNSW](docs/assets/recall_latency_sift1m.svg)
+
+(Reproduce: `python bench/bench_sift.py`; regenerate these charts with `python bench/plot_results.py`.)
 
 ### GPU exact search (CUDA)
 
@@ -131,6 +120,10 @@ ids, scores = flat.search(np.random.rand(384).astype("float32"), k=10)
 hnsw = HnswIndex(dim=384, metric=Metric.InnerProduct, m=16, ef_search=64)
 hnsw.add(vectors)
 hnsw.save("index.sfidx"); hnsw = HnswIndex.load("index.sfidx")
+
+# Metadata-filtered search — "nearest neighbors WHERE category = X"
+mask = category_ids == target_category   # bool array, one entry per stored vector
+ids, scores = hnsw.search_filtered(query, mask, k=10)
 ```
 
 ### The semantic-search demo
@@ -167,6 +160,7 @@ tests/             Python binding tests (Rust unit tests live in crates/core)
 - **Hand-written HNSW** — multi-layer navigable small-world graph: construction, geometric layer assignment, the neighbor-selection diversity heuristic, greedy descent + best-first beam search; tunable `M` / `ef_construction` / `ef_search`. **Parallel construction** (rayon + per-node `RwLock`, deadlock-free) with a **lock-free query path** (one generic traversal serves both).
 - **SIMD distance kernels** — branch-free, lane-parallel accumulation that auto-vectorizes to NEON / AVX on stable Rust (no `-ffast-math`), plus a custom hasher for the graph's visited set.
 - **Product quantization** — k-means codebooks + asymmetric distance computation; 32× compression with a measured recall tradeoff.
+- **Metadata-filtered search** — `search_filtered` on all three indexes ("nearest neighbors *where category = X*"). HNSW routes through non-matching nodes to preserve graph connectivity but only admits matches into the result set, so a selective filter costs search time, not silently-wrong recall.
 - **Cache-aware layout** — contiguous row-major vectors for traversal locality; rayon-parallel batch search with the GIL released.
 - **Persistence** — every index serializes to disk, so a million-vector graph loads in seconds instead of rebuilding.
 - **Rigorous evaluation** — recall@k vs exact ground truth, p50/p99 latency, QPS, memory, and a head-to-head FAISS comparison on SIFT1M.
