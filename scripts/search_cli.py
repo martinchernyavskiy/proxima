@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 
+from searchforge.corpus import trim_snippet
 from searchforge.search import SemanticSearch
 
 
@@ -33,8 +34,7 @@ def main() -> None:
         print(f"\n  {q!r}  —  {ms:.2f} ms over {ss.index.size:,} docs")
         for r in results:
             print(f"  {r.rank:2d}. [{r.score:.3f}] {r.title}")
-            snippet = r.text[:110].rstrip()
-            print(f"        {snippet}…")
+            print(f"        {trim_snippet(r.text, 110)}")
 
     if args.query:
         run(" ".join(args.query))

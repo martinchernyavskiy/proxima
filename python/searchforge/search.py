@@ -15,6 +15,7 @@ from pathlib import Path
 import numpy as np
 
 from ._core import FlatIndex, HnswIndex, Metric
+from .corpus import trim_snippet
 from .embeddings import DEFAULT_MODEL, TextEmbedder
 from .store import load_corpus, load_metadata
 
@@ -80,7 +81,10 @@ class SemanticSearch:
             if i < 0:
                 continue
             d = self.docs[i]
+            # trim_snippet is a no-op on already-clean text, but retroactively
+            # fixes the mid-word cutoffs baked into corpora built before it
+            # existed (a hard 500-char slice with no word-boundary awareness).
             results.append(SearchResult(rank=rank + 1, score=float(s),
-                                        title=d["title"], text=d["text"],
+                                        title=d["title"], text=trim_snippet(d["text"]),
                                         url=d.get("url", "")))
         return results, latency_ms

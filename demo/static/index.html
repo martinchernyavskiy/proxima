@@ -69,6 +69,7 @@
     transition: color .12s ease, border-color .12s ease, background .12s ease;
   }
   .ex:hover { color: var(--text); border-color: var(--accent); background: var(--panel); }
+  .hint { color: var(--dim); font-size: 12.5px; margin: 12px 2px 0; max-width: 560px; line-height: 1.5; }
 
   /* ---------- results ---------- */
   .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 22px 2px 4px; min-height: 24px; }
@@ -162,11 +163,14 @@
     <div class="proof" id="proof"></div>
 
     <div class="searchbar">
-      <input id="q" type="text" placeholder="e.g. a quiet beach town in southern Europe" autocomplete="off" />
+      <input id="q" type="text" placeholder="e.g. a quiet beach town in southern Europe" autocomplete="off"
+             aria-label="Search query" />
       <button id="go">Search</button>
     </div>
 
     <div class="examples" id="examples"></div>
+    <p class="hint">Works best as a descriptive question, like the examples above — it finds
+      Wikipedia articles by meaning, not a general-knowledge chat assistant.</p>
     <div class="meta" id="meta"></div>
     <div class="results" id="results"></div>
 
@@ -260,6 +264,16 @@ function renderExamples() {
 
 function esc(s) { const d = document.createElement("div"); d.textContent = s; return d.innerHTML; }
 
+// esc() escapes for a TEXT node (via textContent/innerHTML) and does not
+// touch `"`, so it does not protect an attribute value like href="...". x.url
+// comes from the corpus's stored Wikipedia URLs, not live user input, but an
+// unescaped quote there could still break out of the attribute -- so it gets
+// its own helper rather than reusing esc() for a context it doesn't cover.
+function escAttr(s) {
+  return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
 async function run() {
   const q = $("q").value.trim();
   if (!q) return;
@@ -273,12 +287,18 @@ async function run() {
       `<span class="chip lat">search <b>${d.latency_ms.toFixed(2)} ms</b></span>` +
       `<span class="chip">over <b>${d.count.toLocaleString()}</b> docs</span>` +
       `<span class="chip"><b>${d.results.length}</b> results</span>`;
-    if (!d.results.length) { $("results").innerHTML = `<div class="empty">No results.</div>`; return; }
+    if (!d.results.length) {
+      $("results").innerHTML =
+        `<div class="empty">No matches found — try rephrasing, or pick one of the example queries above.</div>`;
+      return;
+    }
     $("results").innerHTML = d.results.map(x => `
       <div class="card">
         <div class="top">
-          <a class="title" href="${x.url || '#'}" target="_blank" rel="noopener"><span class="rank">${x.rank}</span>${esc(x.title)}</a>
-          <span class="scorewrap"><span class="score">${x.score.toFixed(3)}</span><span class="scorelbl">match</span></span>
+          <a class="title" href="${escAttr(x.url || '#')}" target="_blank" rel="noopener"><span class="rank">${x.rank}</span>${esc(x.title)}</a>
+          <span class="scorewrap" title="Cosine similarity to your query, from 0 to 1 — higher means closer in meaning">
+            <span class="score">${x.score.toFixed(3)}</span><span class="scorelbl">match</span>
+          </span>
         </div>
         <div class="snip">${esc(x.text)}</div>
       </div>`).join("");

@@ -9,6 +9,32 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 
 
+def trim_snippet(text: str, max_chars: int = 500) -> str:
+    """Trim `text` to at most `max_chars`. Prefers a clean word boundary over
+    a mid-word cut, and only appends an ellipsis when the cut doesn't already
+    land on a real sentence boundary — a truncation that happens to land right
+    after a "." reads as a complete sentence and looks better left alone than
+    forced into "...species…".
+
+    Also doubles as a display-time cleanup for corpora built before this
+    function existed, whose snippets were hard-sliced at exactly `max_chars`
+    and may end mid-word: re-trimming an already-short string is a no-op
+    (`len(text) < max_chars`), so this is safe to call on any snippet.
+    """
+    if len(text) < max_chars:
+        return text
+    cut = text[:max_chars].rstrip()
+    if not cut or cut[-1] in ".!?":
+        return cut  # already ends on a real sentence boundary — leave it be
+    if cut[-1] not in " ,;:\"')]}":
+        # Cut lands mid-word (or mid-clause with no punctuation): back up to
+        # the last full word before marking the truncation.
+        last_space = cut.rfind(" ")
+        if last_space > max_chars * 0.6:  # keep most of the budget
+            cut = cut[:last_space]
+    return cut.rstrip(" ,;:") + "…"
+
+
 @dataclass
 class Doc:
     id: int
@@ -46,7 +72,7 @@ def load_wikipedia(limit: int = 100_000, config: str = "20231101.simple",
         docs.append(Doc(
             id=len(docs),
             title=row["title"],
-            text=text[:snippet_chars],
+            text=trim_snippet(text, snippet_chars),
             url=row.get("url", ""),
         ))
         if len(docs) >= limit:
