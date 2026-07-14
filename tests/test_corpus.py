@@ -46,3 +46,29 @@ def test_regression_pseudorabies_sentence_boundary_not_mangled():
     out = trim_snippet(s, len(s.rstrip()))
     assert out.endswith("species.")
     assert "…" not in out
+
+
+def test_exact_length_text_unchanged_by_default():
+    # A complete string that just happens to be exactly max_chars long (the
+    # default, "fresh text" case used at corpus-build time) must not be
+    # mistaken for a truncation and get a spurious ellipsis appended.
+    s = "Hello world"
+    assert trim_snippet(s, len(s)) == s
+
+
+def test_exact_length_text_cleaned_when_already_cut():
+    # The same exact-length input, but explicitly marked as legacy data that
+    # was hard-sliced at exactly max_chars (the case at query-display time for
+    # corpora built before this function existed) -- length alone can't tell
+    # these two situations apart, so the caller must disambiguate.
+    s = "Hello world"
+    out = trim_snippet(s, len(s), already_cut=True)
+    assert out != s
+    assert out.endswith("…")
+
+
+def test_non_positive_max_chars_returns_empty_not_a_python_slice_trick():
+    # text[:-5] would drop the last 5 characters rather than returning "" --
+    # a non-positive budget must clamp to empty, not fall through to that.
+    assert trim_snippet("Hello world foo bar baz", -5) == ""
+    assert trim_snippet("Hello world", 0) == ""

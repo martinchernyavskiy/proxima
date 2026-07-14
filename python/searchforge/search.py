@@ -81,10 +81,13 @@ class SemanticSearch:
             if i < 0:
                 continue
             d = self.docs[i]
-            # trim_snippet is a no-op on already-clean text, but retroactively
-            # fixes the mid-word cutoffs baked into corpora built before it
-            # existed (a hard 500-char slice with no word-boundary awareness).
+            # already_cut=True: this text came from disk, so a length exactly
+            # at the 500-char default means an older build's hard slice (not a
+            # coincidentally-500-char complete snippet) and should be cleaned
+            # up — retroactively fixing mid-word cutoffs baked in before this
+            # function existed, with no corpus rebuild required.
             results.append(SearchResult(rank=rank + 1, score=float(s),
-                                        title=d["title"], text=trim_snippet(d["text"]),
+                                        title=d["title"],
+                                        text=trim_snippet(d["text"], already_cut=True),
                                         url=d.get("url", "")))
         return results, latency_ms

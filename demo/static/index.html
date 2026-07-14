@@ -218,20 +218,31 @@ const EXAMPLES = [
 
 let infoData = null;
 
+// Safely format a possibly-missing numeric field -- never throws, so one
+// malformed/renamed field can't take down rendering of unrelated fields.
+function fmtNum(x) {
+  return typeof x === "number" ? x.toLocaleString() : "?";
+}
+
 async function info() {
   try {
     const r = await fetch("/api/info");
     infoData = await r.json();
-    renderProof();
-    renderSpecs();
-  } catch (e) {}
+  } catch (e) {
+    console.warn("SearchForge: /api/info failed", e);
+    return;
+  }
+  // Each renderer fails independently, so a problem in one (e.g. an
+  // unexpectedly missing field) doesn't silently blank out the other.
+  try { renderProof(); } catch (e) { console.warn("SearchForge: renderProof failed", e); }
+  try { renderSpecs(); } catch (e) { console.warn("SearchForge: renderSpecs failed", e); }
 }
 
 function renderProof() {
   if (!infoData) return;
   const short = (infoData.index || "").split(" ")[0] || "HNSW";
   $("proof").innerHTML =
-    `<span><b>${infoData.count.toLocaleString()}</b>&nbsp;Wikipedia articles indexed</span>` +
+    `<span><b>${fmtNum(infoData.count)}</b>&nbsp;Wikipedia articles indexed</span>` +
     `<span><b>${short}</b>&nbsp;graph, hand-written in Rust</span>` +
     `<span class="gpu">benchmarked against <b>FAISS</b> on SIFT1M</span>`;
 }
@@ -240,7 +251,7 @@ function renderSpecs() {
   if (!infoData) return;
   const rows = [
     ["Index", infoData.index],
-    ["Documents", infoData.count.toLocaleString()],
+    ["Documents", fmtNum(infoData.count)],
     ["Embedding dim", infoData.dim],
     ["Model", infoData.model],
     ["Metric", infoData.metric],

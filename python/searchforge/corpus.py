@@ -9,19 +9,23 @@ from __future__ import annotations
 from dataclasses import dataclass, asdict
 
 
-def trim_snippet(text: str, max_chars: int = 500) -> str:
+def trim_snippet(text: str, max_chars: int = 500, *, already_cut: bool = False) -> str:
     """Trim `text` to at most `max_chars`. Prefers a clean word boundary over
     a mid-word cut, and only appends an ellipsis when the cut doesn't already
     land on a real sentence boundary — a truncation that happens to land right
     after a "." reads as a complete sentence and looks better left alone than
     forced into "...species…".
 
-    Also doubles as a display-time cleanup for corpora built before this
-    function existed, whose snippets were hard-sliced at exactly `max_chars`
-    and may end mid-word: re-trimming an already-short string is a no-op
-    (`len(text) < max_chars`), so this is safe to call on any snippet.
+    `already_cut=True` is for cleaning up corpora built before this function
+    existed, whose snippets were hard-sliced at exactly `max_chars` and may end
+    mid-word: `len(text) == max_chars` alone can't tell "this is a complete
+    string that happens to be exactly max_chars long" (leave it alone) apart
+    from "this was hard-truncated at exactly max_chars" (needs cleanup) — the
+    two calls disambiguate by declaring which situation they're in, rather
+    than guessing from length alone.
     """
-    if len(text) < max_chars:
+    max_chars = max(max_chars, 0)
+    if len(text) < max_chars or (len(text) == max_chars and not already_cut):
         return text
     cut = text[:max_chars].rstrip()
     if not cut or cut[-1] in ".!?":
