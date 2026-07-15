@@ -55,22 +55,22 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 
 | index | recall@10 | p50 (ms) | QPS (1t) | QPS (mt) | mem |
 |-------|----------:|---------:|---------:|---------:|----:|
-| **PX** Flat (exact) | 0.999 | 9.99 | 101 | 223 | 512 MB |
-| **PX** HNSW `ef=32` | 0.905 | 0.114 | 8,966 | 58,646 | 684 MB |
-| **PX** HNSW `ef=64` | 0.967 | 0.202 | 5,146 | 34,449 | 684 MB |
-| **PX** HNSW `ef=128` | 0.991 | 0.366 | 2,857 | 19,170 | 684 MB |
-| **PX** PQ `m=16` | 0.540 | 5.66 | 176 | 1,190 | **16 MB** |
-| FAISS Flat | 0.999 | 8.31 | 1,630 | 2,534 | 512 MB |
-| FAISS HNSW `ef=64` | 0.964 | 0.125 | 7,454 | 49,445 | 656 MB |
-| FAISS HNSW `ef=128` | 0.989 | 0.228 | 4,639 | 26,096 | 656 MB |
-| FAISS PQ `m=16` | 0.533 | 3.15 | 316 | 1,859 | 16 MB |
+| **PX** Flat (exact) | 0.999 | 11.71 | 85 | 256 | 512 MB |
+| **PX** HNSW `ef=32` | 0.903 | 0.089 | 11,584 | 68,930 | 684 MB |
+| **PX** HNSW `ef=64` | 0.965 | 0.156 | 6,694 | 40,971 | 684 MB |
+| **PX** HNSW `ef=128` | 0.990 | 0.279 | 3,705 | 23,257 | 684 MB |
+| **PX** PQ `m=16` | 0.540 | 5.86 | 170 | 1,128 | **16 MB** |
+| FAISS Flat | 0.999 | 8.39 | 1,669 | 2,743 | 512 MB |
+| FAISS HNSW `ef=64` | 0.962 | 0.121 | 9,335 | 54,744 | 656 MB |
+| FAISS HNSW `ef=128` | 0.990 | 0.219 | 4,996 | 29,554 | 656 MB |
+| FAISS PQ `m=16` | 0.533 | 3.18 | 322 | 2,008 | 16 MB |
 
 **Takeaways (honest):**
-- **Recall matches FAISS** at every operating point — Proxima's HNSW graph and PQ codebooks are correct (recall is even marginally higher, e.g. 0.967 vs 0.964 at ef=64).
-- **HNSW query latency/throughput is within ~1.4–1.6× of FAISS** — e.g. 0.20 ms vs 0.125 ms p50; 34k vs 49k QPS multi-thread. Strong for a hand-written engine.
+- **Recall matches FAISS** at every operating point — Proxima's HNSW graph and PQ codebooks are correct (recall is even marginally higher, e.g. 0.965 vs 0.962 at ef=64).
+- **HNSW query latency/throughput is within ~1.3× of FAISS** — e.g. 0.16 ms vs 0.12 ms p50; 41k vs 55k QPS multi-thread. Strong for a hand-written engine.
 - **PQ compresses 512 MB → 16 MB (32×)** with the same recall tradeoff as FAISS PQ.
 - **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free): ~**12× faster** than single-threaded, bringing the SIFT1M build to the same ballpark as FAISS (~tens of seconds).
-- **Where FAISS still wins, and why:** exact-flat throughput — FAISS uses a BLAS GEMM, Proxima a straightforward SIMD scan (~16×). That's honest, well-understood headroom (a blocked/BLAS matmul would close it), not a correctness gap.
+- **Where FAISS still wins, and why:** exact-flat throughput — FAISS uses a BLAS GEMM, Proxima a straightforward SIMD scan (~20×). That's honest, well-understood headroom (a blocked/BLAS matmul would close it), not a correctness gap.
 
 ![SIFT1M recall vs. latency: Proxima HNSW vs. FAISS HNSW](docs/assets/recall_latency_sift1m.svg)
 
