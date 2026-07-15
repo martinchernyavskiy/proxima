@@ -1,5 +1,5 @@
 """FAISS adapters so the state-of-the-art library is measured by the exact same
-harness as SearchForge. Each builder returns a small wrapper exposing the
+harness as Proxima. Each builder returns a small wrapper exposing the
 `search` / `search_batch` / `size` / `dim` / `memory_bytes` interface the
 harness expects.
 

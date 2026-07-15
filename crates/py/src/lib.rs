@@ -1,9 +1,9 @@
-//! Python bindings (PyO3 + rust-numpy) for the SearchForge engine.
+//! Python bindings (PyO3 + rust-numpy) for the Proxima engine.
 //!
 //! This layer is deliberately thin: it validates shapes, hands numpy buffers to
 //! the pure-Rust core as `&[f32]`, and releases the GIL around the native
 //! search so Python threads can run concurrently. All search logic lives in
-//! `searchforge-core`.
+//! `proxima-core`.
 //!
 //! PyO3's `#[pymethods]` macro expands to code that trips two clippy lints we
 //! can't fix in our own source — `useless_conversion` (its generated argument
@@ -21,7 +21,7 @@ use numpy::{
 use pyo3::exceptions::{PyIOError, PyValueError};
 use pyo3::prelude::*;
 
-use searchforge_core::{
+use proxima_core::{
     FlatIndex as CoreFlat, Hnsw as CoreHnsw, HnswParams, Metric as CoreMetric,
     PqIndex as CorePq, PqParams,
 };
@@ -74,7 +74,7 @@ impl From<Metric> for CoreMetric {
     }
 }
 
-/// Exact brute-force vector index (see `searchforge_core::FlatIndex`).
+/// Exact brute-force vector index (see `proxima_core::FlatIndex`).
 #[pyclass(name = "FlatIndex")]
 struct PyFlatIndex {
     inner: CoreFlat,
@@ -249,7 +249,7 @@ impl PyFlatIndex {
     }
 }
 
-/// Approximate HNSW graph index (see `searchforge_core::Hnsw`).
+/// Approximate HNSW graph index (see `proxima_core::Hnsw`).
 #[pyclass(name = "HnswIndex")]
 struct PyHnsw {
     inner: CoreHnsw,
@@ -434,7 +434,7 @@ impl PyHnsw {
     }
 }
 
-/// Product-quantized compressed index (see `searchforge_core::PqIndex`).
+/// Product-quantized compressed index (see `proxima_core::PqIndex`).
 ///
 /// Lifecycle: construct → `train(training)` → `add(vectors)` → `search(...)`.
 #[pyclass(name = "PqIndex")]
@@ -675,7 +675,7 @@ impl PyPq {
     }
 }
 
-/// The native module, imported as `searchforge._core`.
+/// The native module, imported as `proxima._core`.
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Metric>()?;

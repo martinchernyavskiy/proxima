@@ -1,6 +1,6 @@
 """Text embedding via an off-the-shelf sentence-transformers model.
 
-IMPORTANT framing: the embedding model is **not** part of SearchForge. It is the
+IMPORTANT framing: the embedding model is **not** part of Proxima. It is the
 input layer that turns text into vectors; the project is the search engine that
 operates on those vectors. We use a small, fast, widely-used model so the demo
 is reproducible and the focus stays on the index.

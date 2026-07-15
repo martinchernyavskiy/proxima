@@ -1,4 +1,4 @@
-# Container image for the SearchForge semantic-search demo.
+# Container image for the Proxima semantic-search demo.
 #
 # Builds the Rust engine, bakes a small Wikipedia corpus + HNSW index at image
 # build time (so startup is fast), and serves the FastAPI app. Tuned for
@@ -43,6 +43,6 @@ COPY scripts ./scripts
 RUN python scripts/build_corpus.py --limit 30000 --config 20231101.simple --out data/wiki_demo \
  && python scripts/build_index.py --corpus data/wiki_demo --type hnsw
 
-ENV SEARCHFORGE_CORPUS=data/wiki_demo
+ENV PROXIMA_CORPUS=data/wiki_demo
 EXPOSE 7860
 CMD ["uvicorn", "demo.app:app", "--host", "0.0.0.0", "--port", "7860"]

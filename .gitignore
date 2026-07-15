@@ -3,8 +3,8 @@
 **/*.rs.bk
 
 # Compiled Python extension (built by maturin)
-python/searchforge/_core*.so
-python/searchforge/*.pyd
+python/proxima/_core*.so
+python/proxima/*.pyd
 
 # Python
 .venv/

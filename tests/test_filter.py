@@ -11,7 +11,7 @@ selective; these indexes filter *during* the search itself.
 import numpy as np
 import pytest
 
-from searchforge import FlatIndex, HnswIndex, Metric, PqIndex
+from proxima import FlatIndex, HnswIndex, Metric, PqIndex
 
 
 def _normalize(x):

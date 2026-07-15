@@ -17,11 +17,11 @@ Cleanest (and you want this for the résumé anyway): push to GitHub, then clone
 
 ```bash
 # on the Mac, from the repo:
-gh repo create searchforge --private --source=. --remote=origin --push
-#   ...or: git remote add origin https://github.com/<you>/searchforge.git && git push -u origin main
+gh repo create proxima --private --source=. --remote=origin --push
+#   ...or: git remote add origin https://github.com/<you>/proxima.git && git push -u origin main
 
 # on the desktop:
-git clone https://github.com/<you>/searchforge.git && cd searchforge
+git clone https://github.com/<you>/proxima.git && cd proxima
 ```
 
 (A plain folder copy works too — the `data/` and `target/` dirs are gitignored and not needed.)

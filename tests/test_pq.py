@@ -5,7 +5,7 @@ recall vs exact, compression ratio, and metric handling.
 import numpy as np
 import pytest
 
-from searchforge import FlatIndex, Metric, PqIndex
+from proxima import FlatIndex, Metric, PqIndex
 
 
 def _normalize(x):

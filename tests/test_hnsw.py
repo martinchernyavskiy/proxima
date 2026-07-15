@@ -5,7 +5,7 @@ the ef_search recall/latency dial, and interface parity with FlatIndex.
 import numpy as np
 import pytest
 
-from searchforge import FlatIndex, HnswIndex, Metric
+from proxima import FlatIndex, HnswIndex, Metric
 
 
 def _normalize(x: np.ndarray) -> np.ndarray:

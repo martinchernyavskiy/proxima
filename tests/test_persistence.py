@@ -3,7 +3,7 @@
 import numpy as np
 import pytest
 
-from searchforge import FlatIndex, HnswIndex, Metric, PqIndex
+from proxima import FlatIndex, HnswIndex, Metric, PqIndex
 
 
 @pytest.fixture

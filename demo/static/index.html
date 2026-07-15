@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>SearchForge — semantic search</title>
+<title>Proxima: semantic search</title>
 <style>
   :root {
     --bg: #0a0e13; --panel: #131a23; --panel2: #0f151c;
@@ -152,11 +152,11 @@
 <body>
   <div class="wrap">
     <div class="brand">
-      <h1><span class="fg">Search</span><span class="sg">Forge</span></h1>
+      <h1><span class="fg">Prox</span><span class="sg">ima</span></h1>
       <span class="tag">semantic vector search</span>
     </div>
     <p class="sub">
-      A vector search engine built <b>from scratch in Rust</b> — no managed API, no vector
+      A vector search engine built <b>from scratch in Rust</b>. No managed API, no vector
       database. Type a natural-language query and a hand-written HNSW graph index
       finds the closest matches by <b>meaning</b>, not keywords, in milliseconds.
     </p>
@@ -169,7 +169,7 @@
     </div>
 
     <div class="examples" id="examples"></div>
-    <p class="hint">Works best as a descriptive question, like the examples above — it finds
+    <p class="hint">Works best as a descriptive question, like the examples above. It finds
       Wikipedia articles by meaning, not a general-knowledge chat assistant.</p>
     <div class="meta" id="meta"></div>
     <div class="results" id="results"></div>
@@ -179,15 +179,15 @@
       <div class="steps">
         <div class="step">
           <div class="stepno">1</div>
-          <div class="stepbody"><b>Embed</b> — your query becomes a 384-dim vector (sentence-transformers)</div>
+          <div class="stepbody"><b>Embed:</b> your query becomes a 384-dim vector (sentence-transformers)</div>
         </div>
         <div class="step">
           <div class="stepno">2</div>
-          <div class="stepbody"><b>Search</b> — a hand-written HNSW graph, written in Rust, finds its nearest neighbors</div>
+          <div class="stepbody"><b>Search:</b> a hand-written HNSW graph, written in Rust, finds its nearest neighbors</div>
         </div>
         <div class="step">
           <div class="stepno">3</div>
-          <div class="stepbody"><b>Rank</b> — the closest matching articles come back in milliseconds</div>
+          <div class="stepbody"><b>Rank:</b> the closest matching articles come back in milliseconds</div>
         </div>
       </div>
 
@@ -229,13 +229,13 @@ async function info() {
     const r = await fetch("/api/info");
     infoData = await r.json();
   } catch (e) {
-    console.warn("SearchForge: /api/info failed", e);
+    console.warn("Proxima: /api/info failed", e);
     return;
   }
   // Each renderer fails independently, so a problem in one (e.g. an
   // unexpectedly missing field) doesn't silently blank out the other.
-  try { renderProof(); } catch (e) { console.warn("SearchForge: renderProof failed", e); }
-  try { renderSpecs(); } catch (e) { console.warn("SearchForge: renderSpecs failed", e); }
+  try { renderProof(); } catch (e) { console.warn("Proxima: renderProof failed", e); }
+  try { renderSpecs(); } catch (e) { console.warn("Proxima: renderSpecs failed", e); }
 }
 
 function renderProof() {
@@ -300,14 +300,14 @@ async function run() {
       `<span class="chip"><b>${d.results.length}</b> results</span>`;
     if (!d.results.length) {
       $("results").innerHTML =
-        `<div class="empty">No matches found — try rephrasing, or pick one of the example queries above.</div>`;
+        `<div class="empty">No matches found. Try rephrasing, or pick one of the example queries above.</div>`;
       return;
     }
     $("results").innerHTML = d.results.map(x => `
       <div class="card">
         <div class="top">
           <a class="title" href="${escAttr(x.url || '#')}" target="_blank" rel="noopener"><span class="rank">${x.rank}</span>${esc(x.title)}</a>
-          <span class="scorewrap" title="Cosine similarity to your query, from 0 to 1 — higher means closer in meaning">
+          <span class="scorewrap" title="Cosine similarity to your query, from 0 to 1. Higher means closer in meaning.">
             <span class="score">${x.score.toFixed(3)}</span><span class="scorelbl">match</span>
           </span>
         </div>

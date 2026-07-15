@@ -1,6 +1,6 @@
 """Tests for corpus text utilities (no Rust engine involved)."""
 
-from searchforge.corpus import trim_snippet
+from proxima.corpus import trim_snippet
 
 
 def test_short_text_passes_through_unchanged():

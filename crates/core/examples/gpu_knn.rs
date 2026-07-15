@@ -10,8 +10,8 @@
 
 use std::time::Instant;
 
-use searchforge_core::gpu::CudaKnn;
-use searchforge_core::{FlatIndex, Metric};
+use proxima_core::gpu::CudaKnn;
+use proxima_core::{FlatIndex, Metric};
 
 fn gen(n: usize, dim: usize, seed: u64) -> Vec<f32> {
     let mut s = seed;

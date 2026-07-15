@@ -1,10 +1,10 @@
-# SearchForge
+# Proxima
 
 **A from-scratch, GPU-accelerable vector search engine — written in Rust, demonstrated through semantic search.**
 
 > Search by *meaning*, not keywords. Type "a quiet beach town in southern Europe" and get the most semantically similar items from a corpus of millions, in milliseconds — the same retrieval technology that powers vector databases (Pinecone, Weaviate, Milvus) and the RAG layer of modern AI systems.
 
-SearchForge is an **approximate nearest-neighbor (ANN) vector search engine** built from the ground up: a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and an honest benchmark harness measuring recall / latency / memory against the exact ground truth and against FAISS.
+Proxima is an **approximate nearest-neighbor (ANN) vector search engine** built from the ground up: a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and an honest benchmark harness measuring recall / latency / memory against the exact ground truth and against FAISS.
 
 📖 **[Design writeup](docs/WRITEUP.md)** — HNSW internals, the parallel-build regression story, and the full FAISS comparison. · 🚀 **[Deploy the demo](docs/DEPLOY.md)** to a free hosted URL.
 
@@ -14,11 +14,11 @@ SearchForge is an **approximate nearest-neighbor (ANN) vector search engine** bu
 
 ## Architecture
 
-![SearchForge architecture: Python orchestration → PyO3 bindings → Rust core (FlatIndex / HnswIndex / PqIndex / distance kernels), with a CUDA satellite accelerating exact search and FAISS as an external comparison baseline](docs/assets/architecture.svg)
+![Proxima architecture: Python orchestration → PyO3 bindings → Rust core (FlatIndex / HnswIndex / PqIndex / distance kernels), with a CUDA satellite accelerating exact search and FAISS as an external comparison baseline](docs/assets/architecture.svg)
 
 - **`crates/core`** — the engine, pure Rust, no Python dependency. Directly `cargo test`-able and benchmarkable.
-- **`crates/py`** — thin [PyO3](https://pyo3.rs) bindings exposing the engine to Python as `searchforge._core` (built with [maturin](https://www.maturin.rs)). Releases the GIL around native search.
-- **`python/searchforge`** — the Python package: corpus loading, embedding pipeline, benchmarks, demo.
+- **`crates/py`** — thin [PyO3](https://pyo3.rs) bindings exposing the engine to Python as `proxima._core` (built with [maturin](https://www.maturin.rs)). Releases the GIL around native search.
+- **`python/proxima`** — the Python package: corpus loading, embedding pipeline, benchmarks, demo.
 
 ## Status
 
@@ -55,24 +55,24 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 
 | index | recall@10 | p50 (ms) | QPS (1t) | QPS (mt) | mem |
 |-------|----------:|---------:|---------:|---------:|----:|
-| **SF** Flat (exact) | 0.999 | 9.99 | 101 | 223 | 512 MB |
-| **SF** HNSW `ef=32` | 0.905 | 0.114 | 8,966 | 58,646 | 684 MB |
-| **SF** HNSW `ef=64` | 0.967 | 0.202 | 5,146 | 34,449 | 684 MB |
-| **SF** HNSW `ef=128` | 0.991 | 0.366 | 2,857 | 19,170 | 684 MB |
-| **SF** PQ `m=16` | 0.540 | 5.66 | 176 | 1,190 | **16 MB** |
+| **PX** Flat (exact) | 0.999 | 9.99 | 101 | 223 | 512 MB |
+| **PX** HNSW `ef=32` | 0.905 | 0.114 | 8,966 | 58,646 | 684 MB |
+| **PX** HNSW `ef=64` | 0.967 | 0.202 | 5,146 | 34,449 | 684 MB |
+| **PX** HNSW `ef=128` | 0.991 | 0.366 | 2,857 | 19,170 | 684 MB |
+| **PX** PQ `m=16` | 0.540 | 5.66 | 176 | 1,190 | **16 MB** |
 | FAISS Flat | 0.999 | 8.31 | 1,630 | 2,534 | 512 MB |
 | FAISS HNSW `ef=64` | 0.964 | 0.125 | 7,454 | 49,445 | 656 MB |
 | FAISS HNSW `ef=128` | 0.989 | 0.228 | 4,639 | 26,096 | 656 MB |
 | FAISS PQ `m=16` | 0.533 | 3.15 | 316 | 1,859 | 16 MB |
 
 **Takeaways (honest):**
-- **Recall matches FAISS** at every operating point — SearchForge's HNSW graph and PQ codebooks are correct (recall is even marginally higher, e.g. 0.967 vs 0.964 at ef=64).
+- **Recall matches FAISS** at every operating point — Proxima's HNSW graph and PQ codebooks are correct (recall is even marginally higher, e.g. 0.967 vs 0.964 at ef=64).
 - **HNSW query latency/throughput is within ~1.4–1.6× of FAISS** — e.g. 0.20 ms vs 0.125 ms p50; 34k vs 49k QPS multi-thread. Strong for a hand-written engine.
 - **PQ compresses 512 MB → 16 MB (32×)** with the same recall tradeoff as FAISS PQ.
 - **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free): ~**12× faster** than single-threaded, bringing the SIFT1M build to the same ballpark as FAISS (~tens of seconds).
-- **Where FAISS still wins, and why:** exact-flat throughput — FAISS uses a BLAS GEMM, SearchForge a straightforward SIMD scan (~16×). That's honest, well-understood headroom (a blocked/BLAS matmul would close it), not a correctness gap.
+- **Where FAISS still wins, and why:** exact-flat throughput — FAISS uses a BLAS GEMM, Proxima a straightforward SIMD scan (~16×). That's honest, well-understood headroom (a blocked/BLAS matmul would close it), not a correctness gap.
 
-![SIFT1M recall vs. latency: SearchForge HNSW vs. FAISS HNSW](docs/assets/recall_latency_sift1m.svg)
+![SIFT1M recall vs. latency: Proxima HNSW vs. FAISS HNSW](docs/assets/recall_latency_sift1m.svg)
 
 (Reproduce: `python bench/bench_sift.py`; regenerate these charts with `python bench/plot_results.py`.)
 
@@ -100,16 +100,16 @@ Requires a Rust toolchain and Python 3.9+.
 ```bash
 python3 -m venv .venv && source .venv/bin/activate
 pip install maturin
-maturin develop --release          # builds searchforge._core into the venv
+maturin develop --release          # builds proxima._core into the venv
 
-cargo test -p searchforge-core     # pure-Rust engine tests
+cargo test -p proxima-core         # pure-Rust engine tests
 ```
 
 ### Quick start
 
 ```python
 import numpy as np
-from searchforge import FlatIndex, HnswIndex, PqIndex, Metric
+from proxima import FlatIndex, HnswIndex, PqIndex, Metric
 
 # Exact baseline
 flat = FlatIndex(dim=384, metric=Metric.InnerProduct)
@@ -140,7 +140,7 @@ Type a natural-language query → semantically ranked Wikipedia results + the li
 
 ```bash
 python bench/run_bench.py  --corpus data/wiki_simple   # HNSW vs exact (recall/latency sweep)
-python bench/bench_sift.py                             # SearchForge vs FAISS on SIFT1M
+python bench/bench_sift.py                             # Proxima vs FAISS on SIFT1M
 ```
 
 ## Project layout
@@ -148,7 +148,7 @@ python bench/bench_sift.py                             # SearchForge vs FAISS on
 ```
 crates/core/src/   distance.rs · flat.rs · hnsw.rs · pq.rs · metric.rs   (the engine)
 crates/py/src/     lib.rs                                                (PyO3 bindings)
-python/searchforge/  embeddings · corpus · store · search                (orchestration)
+python/proxima/    embeddings · corpus · store · search                (orchestration)
 bench/             harness · run_bench · bench_sift · faiss_compare · datasets
 demo/              app.py + static/index.html                            (FastAPI + UI)
 scripts/           build_corpus · build_index · search_cli
@@ -164,17 +164,6 @@ tests/             Python binding tests (Rust unit tests live in crates/core)
 - **Cache-aware layout** — contiguous row-major vectors for traversal locality; rayon-parallel batch search with the GIL released.
 - **Persistence** — every index serializes to disk, so a million-vector graph loads in seconds instead of rebuilding.
 - **Rigorous evaluation** — recall@k vs exact ground truth, p50/p99 latency, QPS, memory, and a head-to-head FAISS comparison on SIFT1M.
-
-## License
-
-MIT
-
-
-- **Hand-written HNSW** — multi-layer navigable small-world graph: construction, layer assignment, neighbor-selection heuristic, greedy search with a candidate heap; tunable `M` / `efConstruction` / `efSearch`.
-- **SIMD distance kernels** — branch-free, lane-parallel accumulation that auto-vectorizes to NEON / AVX on stable Rust (no `-ffast-math`).
-- **Product quantization** — compact codes with a measured recall/memory tradeoff.
-- **Cache-aware layout** — contiguous row-major vectors for traversal locality.
-- **Rigorous evaluation** — recall@k vs exact ground truth, p50/p99 latency, QPS, memory, and a FAISS comparison.
 
 ## License
 

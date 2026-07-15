@@ -1,4 +1,4 @@
-"""SearchForge demo web app.
+"""Proxima demo web app.
 
 A minimal FastAPI server that loads a built corpus into the engine and serves:
   GET /                  the search UI (static HTML)
@@ -6,7 +6,7 @@ A minimal FastAPI server that loads a built corpus into the engine and serves:
   GET /api/info          corpus / engine metadata
 
 Run:
-  SEARCHFORGE_CORPUS=data/wiki_simple \
+  PROXIMA_CORPUS=data/wiki_simple \
     .venv/bin/uvicorn demo.app:app --reload
 """
 
@@ -19,7 +19,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.responses import FileResponse, JSONResponse
 
-from searchforge.search import SemanticSearch
+from proxima.search import SemanticSearch
 
 STATIC = Path(__file__).resolve().parent / "static"
 # Prefer the largest available corpus; each falls back to the next if missing.
@@ -29,7 +29,7 @@ state: dict = {}
 
 
 def _pick_corpus() -> str:
-    env = os.environ.get("SEARCHFORGE_CORPUS")
+    env = os.environ.get("PROXIMA_CORPUS")
     candidates = [env, *CORPUS_CANDIDATES] if env else CORPUS_CANDIDATES
     for c in candidates:
         if c and Path(c, "manifest.json").exists():
@@ -41,7 +41,7 @@ def _pick_corpus() -> str:
 async def lifespan(app: FastAPI):
     # Load the corpus + embedding model once at startup.
     corpus = _pick_corpus()
-    print(f"[searchforge] loading corpus: {corpus}", flush=True)
+    print(f"[proxima] loading corpus: {corpus}", flush=True)
     ss = SemanticSearch.from_corpus(corpus)
     # Warm the index: a freshly-deserialized graph is cold in CPU cache, so the
     # first few searches are slow. Pre-touch it so the first real query is fast.
@@ -53,12 +53,12 @@ async def lifespan(app: FastAPI):
         pass
     state["search"] = ss
     state["corpus"] = corpus
-    print(f"[searchforge] ready: {ss.index.size:,} docs ({ss.index_kind})", flush=True)
+    print(f"[proxima] ready: {ss.index.size:,} docs ({ss.index_kind})", flush=True)
     yield
     state.clear()
 
 
-app = FastAPI(title="SearchForge", lifespan=lifespan)
+app = FastAPI(title="Proxima", lifespan=lifespan)
 
 
 @app.get("/api/info")

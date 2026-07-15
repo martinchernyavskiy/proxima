@@ -14,7 +14,7 @@ fn main() {
         // RTX 4070 Ti is Ada Lovelace = compute capability 8.9 (sm_89).
         .flag("-gencode=arch=compute_89,code=sm_89")
         .file("cuda/knn.cu")
-        .compile("searchforge_knn");
+        .compile("proxima_knn");
 
     // Link the CUDA runtime. CUDA_PATH is set by the Windows installer; on Linux
     // the toolkit is usually at /usr/local/cuda.

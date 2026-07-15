@@ -1,8 +1,8 @@
-//! SearchForge core — a from-scratch vector search engine (pure Rust).
+//! Proxima core — a from-scratch vector search engine (pure Rust).
 //!
 //! This crate has no Python dependency, so it can be unit-tested and
 //! benchmarked directly with `cargo test` / `cargo bench`. The Python bindings
-//! live in a separate crate (`searchforge-py`) and are a thin layer on top.
+//! live in a separate crate (`proxima-py`) and are a thin layer on top.
 //!
 //! It exposes the exact [`FlatIndex`] baseline, the approximate [`Hnsw`] graph
 //! index, and product quantization ([`PqIndex`]), all sharing the [`distance`]

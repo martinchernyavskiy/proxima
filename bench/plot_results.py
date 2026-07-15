@@ -5,9 +5,9 @@ JSON (bench/results/*.json) into docs/assets/*.{svg,png} for the README/writeup.
     python bench/plot_results.py
 
 Two figures:
-  recall_latency_sift1m — SearchForge vs FAISS HNSW at 1M scale (the headline
+  recall_latency_sift1m — Proxima vs FAISS HNSW at 1M scale (the headline
                           "how close to FAISS" comparison).
-  recall_latency_wiki   — SearchForge's own ef_search sweep vs its exact
+  recall_latency_wiki   — Proxima's own ef_search sweep vs its exact
                           baseline on the 100k Wikipedia corpus.
 
 Style follows the project's data-viz conventions: a validated categorical pair
@@ -109,7 +109,7 @@ def _save(fig, stem: str) -> None:
 
 def plot_sift1m(results: list[dict]) -> None:
     by_name = {r["name"]: r for r in results}
-    sf = [(by_name[f"SF HNSW(ef={ef})"]["p50_ms"], by_name[f"SF HNSW(ef={ef})"]["recall_at_k"], ef)
+    px = [(by_name[f"PX HNSW(ef={ef})"]["p50_ms"], by_name[f"PX HNSW(ef={ef})"]["recall_at_k"], ef)
           for ef in (32, 64, 128)]
     fs = [(by_name[f"FAISS HNSW(ef={ef})"]["p50_ms"], by_name[f"FAISS HNSW(ef={ef})"]["recall_at_k"], ef)
           for ef in (32, 64, 128)]
@@ -118,7 +118,7 @@ def plot_sift1m(results: list[dict]) -> None:
     fig.subplots_adjust(top=0.82, bottom=0.12, left=0.11, right=0.97)
 
     fx, fy = _series(ax, fs, AQUA, "FAISS HNSW")
-    sx, sy = _series(ax, sf, BLUE, "SearchForge HNSW")
+    sx, sy = _series(ax, px, BLUE, "Proxima HNSW")
     _label_point(ax, fx[0], fy[0], "ef=32", (7, -3))
     _label_point(ax, fx[-1], fy[-1], "ef=128", (7, -3))
     _label_point(ax, sx[0], sy[0], "ef=32", (7, -3))
@@ -130,7 +130,7 @@ def plot_sift1m(results: list[dict]) -> None:
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.2f}"))
     _style(ax, "p50 query latency (log scale)", "recall@10")
 
-    _header(fig, "SIFT1M: recall vs. latency — SearchForge vs. FAISS",
+    _header(fig, "SIFT1M: recall vs. latency — Proxima vs. FAISS",
             "1M vectors, 128-dim, k=10, identical queries + ground truth")
     ax.legend(loc="lower right", frameon=False, fontsize=9, labelcolor=INK_SECONDARY,
              handlelength=1.6)

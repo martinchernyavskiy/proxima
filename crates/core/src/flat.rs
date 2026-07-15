@@ -1,6 +1,6 @@
 //! Exact ("flat") brute-force nearest-neighbor index.
 //!
-//! This is SearchForge's ground truth: it scans every stored vector for each
+//! This is Proxima's ground truth: it scans every stored vector for each
 //! query, so its results are exact by construction. The approximate HNSW index
 //! is measured for recall against it, and the future GPU path accelerates
 //! exactly this computation. Vectors are stored contiguously row-major for

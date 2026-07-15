@@ -1,8 +1,8 @@
-# SearchForge workspace.
+# Proxima workspace.
 #
-#   crates/core  - pure-Rust engine (flat index now; HNSW + PQ later). No Python
-#                  dependency, so it is directly `cargo test`-able / benchable.
-#   crates/py    - thin PyO3 binding layer exposed to Python as `searchforge._core`.
+#   crates/core  - pure-Rust engine: flat index, HNSW, product quantization. No
+#                  Python dependency, so it is directly `cargo test`-able / benchable.
+#   crates/py    - thin PyO3 binding layer exposed to Python as `proxima._core`.
 [workspace]
 members = ["crates/core", "crates/py"]
 resolver = "2"

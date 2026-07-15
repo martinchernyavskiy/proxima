@@ -14,9 +14,9 @@ from __future__ import annotations
 import argparse
 import time
 
-from searchforge.corpus import load_wikipedia
-from searchforge.embeddings import DEFAULT_MODEL, TextEmbedder
-from searchforge.store import save_corpus
+from proxima.corpus import load_wikipedia
+from proxima.embeddings import DEFAULT_MODEL, TextEmbedder
+from proxima.store import save_corpus
 
 
 def main() -> None:

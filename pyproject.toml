@@ -3,7 +3,7 @@ requires = ["maturin>=1.5,<2.0"]
 build-backend = "maturin"
 
 [project]
-name = "searchforge"
+name = "proxima"
 version = "0.1.0"
 description = "A from-scratch, GPU-accelerable vector search engine, demonstrated through semantic search."
 readme = "README.md"
@@ -25,4 +25,4 @@ bench = ["faiss-cpu", "matplotlib"]
 # Workspace layout: the cdylib lives in crates/py; Python sources in python/.
 manifest-path = "crates/py/Cargo.toml"
 python-source = "python"
-module-name = "searchforge._core"
+module-name = "proxima._core"

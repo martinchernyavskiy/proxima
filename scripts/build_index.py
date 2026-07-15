@@ -17,7 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
-from searchforge import FlatIndex, HnswIndex, Metric, PqIndex
+from proxima import FlatIndex, HnswIndex, Metric, PqIndex
 
 
 def _add_chunked(idx, vectors, chunk: int = 50_000) -> None:

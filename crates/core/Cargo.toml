@@ -1,5 +1,5 @@
 [package]
-name = "searchforge-core"
+name = "proxima-core"
 description = "From-scratch vector search engine core: flat index, HNSW, product quantization."
 version.workspace = true
 edition.workspace = true

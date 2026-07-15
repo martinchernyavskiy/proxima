@@ -1,4 +1,4 @@
-# SearchForge — common tasks. Assumes a Python venv at .venv and a Rust
+# Proxima — common tasks. Assumes a Python venv at .venv and a Rust
 # toolchain (cargo) on PATH.
 VENV ?= .venv
 PY   := $(VENV)/bin/python
@@ -15,7 +15,7 @@ build:  ## build the Rust engine into the venv (maturin develop --release)
 test: test-rust test-py  ## run all tests (Rust core + Python bindings)
 
 test-rust:  ## pure-Rust core unit tests
-	cargo test -p searchforge-core --release
+	cargo test -p proxima-core --release
 
 test-py:  ## Python binding tests
 	$(PY) -m pytest tests/ -q

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Run the SearchForge benchmark suite and print a results table.
+"""Run the Proxima benchmark suite and print a results table.
 
     # benchmark over a built corpus
     python bench/run_bench.py --corpus data/wiki_simple --nq 1000 --k 10
@@ -27,8 +27,8 @@ sys.path.insert(0, str(HERE))  # local `harness` module
 
 from harness import benchmark_index, exact_ground_truth, format_table  # noqa: E402
 
-from searchforge import FlatIndex, HnswIndex, Metric  # noqa: E402
-from searchforge.store import load_corpus  # noqa: E402
+from proxima import FlatIndex, HnswIndex, Metric  # noqa: E402
+from proxima.store import load_corpus  # noqa: E402
 
 
 def load_base(args) -> tuple[np.ndarray, str]:

@@ -1,4 +1,4 @@
-"""Benchmark methodology for SearchForge indexes.
+"""Benchmark methodology for Proxima indexes.
 
 Index-agnostic: anything exposing `.search(query, k)` / `.search_batch(queries,
 k, num_threads)` / `.memory_bytes` can be measured. The exact `FlatIndex` is used
@@ -16,7 +16,7 @@ from dataclasses import asdict, dataclass
 
 import numpy as np
 
-from searchforge import FlatIndex, Metric
+from proxima import FlatIndex, Metric
 
 
 @dataclass

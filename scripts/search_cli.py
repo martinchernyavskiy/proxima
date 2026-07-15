@@ -12,8 +12,8 @@ from __future__ import annotations
 
 import argparse
 
-from searchforge.corpus import trim_snippet
-from searchforge.search import SemanticSearch
+from proxima.corpus import trim_snippet
+from proxima.search import SemanticSearch
 
 
 def main() -> None:
