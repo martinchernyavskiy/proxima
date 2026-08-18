@@ -4,13 +4,17 @@
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
 <title>Proxima: semantic search</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600;700&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
   :root {
     --void: #05070d; --void2: #0a0e18; --panel: #0d1220; --border: #1c2333;
     --border-soft: #151a29; --star: #f1efe9; --text: #d7d9e2; --muted: #7d8296;
     --dim: #4d5266; --ember: #ff7a50; --ember-dim: rgba(255,122,80,.14);
-    --cool: #6fd6e8; --mono: ui-monospace, "SF Mono", "Cascadia Code", "Roboto Mono", Menlo, Consolas, monospace;
-    --sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    --cool: #6fd6e8;
+    --mono: "IBM Plex Mono", ui-monospace, "SF Mono", "Cascadia Code", Menlo, Consolas, monospace;
+    --sans: "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   }
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; }
@@ -24,7 +28,6 @@
   }
   .wrap { position: relative; z-index: 1; max-width: 860px; margin: 0 auto; padding: 60px 20px 64px; }
 
-  /* ---------- hero ---------- */
   .brand { display: flex; align-items: baseline; gap: 14px; margin-bottom: 12px; }
   h1 {
     font: 700 34px/1 var(--mono); margin: 0; letter-spacing: -0.02em;
@@ -34,8 +37,12 @@
   .tag {
     color: var(--dim); font: 11px/1 var(--mono); text-transform: uppercase; letter-spacing: .09em;
   }
+  .hook {
+    color: var(--star); margin: 2px 0 14px; font-size: 18px; line-height: 1.55;
+    max-width: 620px; font-weight: 400;
+  }
   .sub {
-    color: var(--muted); margin: 0 0 22px; font-size: 16px; max-width: 600px; line-height: 1.65;
+    color: var(--muted); margin: 0 0 22px; font-size: 14.5px; max-width: 600px; line-height: 1.6;
   }
   .sub b { color: var(--star); font-weight: 600; }
 
@@ -52,7 +59,6 @@
   .proof span.cmp::before { background: var(--cool); box-shadow: 0 0 6px 1px rgba(111,214,232,.25); }
   .proof b { color: var(--star); font-family: var(--mono); font-weight: 600; }
 
-  /* ---------- search ---------- */
   .searchbar { display: flex; gap: 10px; position: relative; }
   input[type=text] {
     flex: 1; background: var(--panel); border: 1px solid var(--border); color: var(--star);
@@ -80,7 +86,6 @@
   .ex:hover { color: var(--star); border-color: var(--ember); background: var(--ember-dim); }
   .hint { color: var(--dim); font-size: 12.5px; margin: 14px 2px 0; max-width: 560px; line-height: 1.5; }
 
-  /* ---------- results ---------- */
   .meta { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin: 22px 2px 4px; min-height: 24px; }
   .chip {
     background: var(--panel); border: 1px solid var(--border-soft); color: var(--muted);
@@ -89,17 +94,32 @@
   .chip b { color: var(--star); font-weight: 600; }
   .chip.lat b { color: var(--ember); }
 
-  .link-overlay { position: relative; height: 0; overflow: visible; }
-  .link-overlay svg { position: absolute; top: 0; left: 0; width: 100%; overflow: visible; }
-  .link-overlay line {
-    stroke: var(--ember); stroke-width: 1.2; opacity: 0;
-    stroke-dasharray: 200; stroke-dashoffset: 200;
+  .constellation {
+    margin: 20px 0 4px; background: var(--panel); border: 1px solid var(--border-soft);
+    border-radius: 8px; padding: 14px 16px 12px;
   }
-  .link-overlay.active line {
-    animation: draw .5s ease forwards, fade-out .5s ease .55s forwards;
+  .c-legend {
+    display: flex; gap: 16px; flex-wrap: wrap; color: var(--dim); font: 10.5px var(--mono);
+    text-transform: uppercase; letter-spacing: .06em; margin: 0 0 8px;
   }
-  @keyframes draw { to { stroke-dashoffset: 0; opacity: .55; } }
-  @keyframes fade-out { to { opacity: 0; } }
+  .c-dot {
+    display: inline-block; width: 7px; height: 7px; border-radius: 50%;
+    margin-right: 5px; vertical-align: middle;
+  }
+  .c-dot-query { background: var(--star); }
+  .c-dot-hop { background: var(--cool); }
+  .c-dot-final { background: var(--ember); box-shadow: 0 0 5px 1px var(--ember-dim); }
+  .constellation svg { width: 100%; height: auto; display: block; overflow: visible; }
+  .c-query { fill: var(--star); }
+  .c-point { fill: var(--cool); opacity: .8; animation: c-pop .3s ease; }
+  .c-point.c-final { fill: var(--ember); opacity: 1; filter: drop-shadow(0 0 4px var(--ember)); }
+  .c-final-label { fill: var(--star); font: 600 11px var(--mono); }
+  .c-edge { stroke: var(--cool); stroke-width: 1; opacity: .28; animation: c-edge-in .3s ease; }
+  @keyframes c-pop { from { opacity: 0; r: 0; } to { opacity: .8; } }
+  @keyframes c-edge-in { from { opacity: 0; } to { opacity: .28; } }
+  .constellation-caption {
+    margin: 10px 2px 0; color: var(--muted); font: 12.5px var(--mono); min-height: 16px;
+  }
 
   .results { margin-top: 8px; display: flex; flex-direction: column; gap: 10px; }
   .card {
@@ -123,7 +143,6 @@
   .card .rank { color: var(--dim); font-size: 12px; font-family: var(--mono); margin-right: 9px; }
   .empty { color: var(--muted); padding: 20px 2px; }
 
-  /* ---------- how it works / benchmarks ---------- */
   .highlights { margin-top: 50px; }
   .highlights h2 {
     font: 600 11px/1 var(--mono); color: var(--dim); margin: 0 0 16px;
@@ -146,7 +165,6 @@
   .stat-k { color: var(--muted); font-size: 12.5px; margin-top: 6px; line-height: 1.4; }
   .h-note { color: var(--dim); font-size: 12px; margin: 14px 2px 0; }
 
-  /* ---------- engine details (collapsed by default) ---------- */
   .specs { margin-top: 46px; border-top: 1px solid var(--border-soft); padding-top: 18px; }
   .specs summary {
     cursor: pointer; color: var(--dim); font: 12px var(--mono); list-style: none;
@@ -168,7 +186,7 @@
 
   @media (prefers-reduced-motion: reduce) {
     .card { animation: none; opacity: 1; transform: none; }
-    .link-overlay.active line { animation: none; }
+    .c-point, .c-edge { animation: none; }
   }
 </style>
 </head>
@@ -179,10 +197,16 @@
       <h1><span class="ember">Prox</span><span class="star">ima</span></h1>
       <span class="tag">nearest-neighbor search, built from scratch</span>
     </div>
+    <p class="hook">
+      This is the same core idea behind how Spotify finds a song like the one you're
+      playing, how reverse image search works, and how a chatbot recalls the right memory:
+      given one thing, find the most similar things out of millions, instantly.
+    </p>
     <p class="sub">
-      A vector search engine built <b>from scratch in Rust</b>. No managed API, no vector
-      database. Type a natural-language query and a hand-written HNSW graph index
-      finds the closest matches by <b>meaning</b>, not keywords, in milliseconds.
+      Proxima does that <b>from scratch, in Rust</b>: no managed API, no vector database,
+      no shortcuts for the search itself. Type a query below and watch a hand-written graph
+      index called HNSW navigate a million Wikipedia articles to find the closest match by
+      <b>meaning</b>, not keywords.
     </p>
     <div class="proof" id="proof"></div>
 
@@ -196,8 +220,17 @@
     <p class="hint">Works best as a descriptive question, like the examples above. It finds
       Wikipedia articles by meaning, not a general-knowledge chat assistant.</p>
 
+    <div class="constellation">
+      <div class="c-legend">
+        <span><span class="c-dot c-dot-query"></span>your query</span>
+        <span><span class="c-dot c-dot-hop"></span>candidates checked</span>
+        <span><span class="c-dot c-dot-final"></span>nearest match</span>
+      </div>
+      <svg id="constellationSvg" viewBox="0 0 600 220" preserveAspectRatio="xMidYMid meet" aria-hidden="true"></svg>
+      <p class="constellation-caption" id="constellationCaption">Watching the graph. Run a search to see it navigate live.</p>
+    </div>
+
     <div class="meta" id="meta"></div>
-    <div class="link-overlay" id="linkOverlay"></div>
     <div class="results" id="results"></div>
 
     <section class="highlights">
@@ -209,7 +242,7 @@
         </div>
         <div class="step">
           <div class="stepno">02</div>
-          <div class="stepbody"><b>Search:</b> a hand-written HNSW graph, written in Rust, finds its nearest neighbors</div>
+          <div class="stepbody"><b>Search:</b> a hand-written HNSW graph, written in Rust, hops through real neighbors (watch it live, above) to find the nearest ones</div>
         </div>
         <div class="step">
           <div class="stepno">03</div>
@@ -243,7 +276,6 @@ const EXAMPLES = [
 ];
 const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-// ---------- ambient starfield (signature background, purely decorative) ----------
 (function stars() {
   const canvas = $("stars");
   const ctx = canvas.getContext("2d");
@@ -280,6 +312,7 @@ const REDUCED_MOTION = window.matchMedia("(prefers-reduced-motion: reduce)").mat
 })();
 
 let infoData = null;
+let searchSeq = 0;
 
 function fmtNum(x) {
   return typeof x === "number" ? x.toLocaleString() : "?";
@@ -338,37 +371,127 @@ function escAttr(s) {
     .replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
-// Briefly draws lines from the search bar down toward where each result is
-// about to land -- a literal, honest picture of "your query connects to its
-// nearest neighbors," which is what the HNSW graph just did on the backend.
-function animateLinks(count) {
-  if (REDUCED_MOTION || !count) return;
-  const overlay = $("linkOverlay");
-  const barRect = document.querySelector(".searchbar").getBoundingClientRect();
-  const wrapRect = document.querySelector(".wrap").getBoundingClientRect();
-  const originX = barRect.left + barRect.width / 2 - wrapRect.left;
-  const n = Math.min(count, 6);
-  const spread = Math.min(320, wrapRect.width - 40);
-  const lines = Array.from({ length: n }, (_, i) => {
-    const targetX = originX - spread / 2 + (spread * i) / (n - 1 || 1);
-    return `<line x1="${originX}" y1="0" x2="${targetX}" y2="90"/>`;
-  }).join("");
-  overlay.innerHTML = `<svg height="90"><g>${lines}</g></svg>`;
-  overlay.classList.remove("active");
-  void overlay.offsetWidth; // restart the CSS animation
-  overlay.classList.add("active");
-  setTimeout(() => { overlay.innerHTML = ""; overlay.classList.remove("active"); }, 1100);
+const SVG_NS = "http://www.w3.org/2000/svg";
+const GOLDEN_ANGLE = 137.50776405003785 * Math.PI / 180;
+let constellationTimer = null;
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS(SVG_NS, tag);
+  for (const k in attrs) el.setAttribute(k, attrs[k]);
+  return el;
+}
+
+function isL2Metric() {
+  return !!(infoData && infoData.metric === "L2");
+}
+
+function normDist(score, min, max) {
+  if (max - min < 1e-6) return 0.35;
+  const t = (score - min) / (max - min);
+  return isL2Metric() ? t : 1 - t;
+}
+
+function layerCaption(layer, title) {
+  return layer > 0
+    ? `Jumping ahead on the express lane, landing near "${title}"…`
+    : `Checking "${title}"…`;
+}
+
+function renderConstellation(trace, results, meta) {
+  clearTimeout(constellationTimer);
+  const svg = $("constellationSvg");
+  const caption = $("constellationCaption");
+  svg.innerHTML = "";
+
+  if (!trace.length) {
+    caption.textContent = results.length
+      ? `Exact search: every one of ${fmtNum(meta.count)} vectors compared directly, no graph to navigate.`
+      : "No matches found.";
+    return;
+  }
+
+  const cx = 300, cy = 110;
+  const rXmin = 24, rXmax = 272, rYmin = 16, rYmax = 92;
+  const allScores = trace.map(t => t.score).concat(results.map(r => r.score));
+  const min = Math.min(...allScores), max = Math.max(...allScores);
+  const place = (score, i) => {
+    const t = normDist(score, min, max);
+    const a = i * GOLDEN_ANGLE + (Math.random() - 0.5) * 0.35;
+    return {
+      x: cx + (rXmin + t * (rXmax - rXmin)) * Math.cos(a),
+      y: cy + (rYmin + t * (rYmax - rYmin)) * Math.sin(a),
+    };
+  };
+  const hops = trace.map((t, i) => ({ ...place(t.score, i), layer: t.layer, title: t.title }));
+  const finals = results.map((r, i) => ({ ...place(r.score, trace.length + i), title: r.title }));
+
+  svg.appendChild(svgEl("circle", { cx, cy, r: 5, class: "c-query" }));
+
+  const finish = () => {
+    finals.forEach((p, i) => {
+      svg.appendChild(svgEl("circle", { cx: p.x, cy: p.y, r: 5, class: "c-point c-final" }));
+      if (i === 0) {
+        const label = svgEl("text", {
+          x: p.x, y: p.y < cy ? p.y - 10 : p.y + 16,
+          class: "c-final-label", "text-anchor": p.x < cx ? "start" : "end",
+        });
+        label.textContent = p.title.length > 28 ? p.title.slice(0, 26) + "…" : p.title;
+        svg.appendChild(label);
+      }
+    });
+    caption.textContent = results.length
+      ? `Found "${results[0].title}": checked ${fmtNum(meta.totalVisited)} real candidates in the graph, ${meta.latency.toFixed(2)} ms.`
+      : "No matches found.";
+  };
+
+  if (REDUCED_MOTION) {
+    hops.forEach((p, i) => {
+      const prev = i === 0 ? { x: cx, y: cy } : hops[i - 1];
+      svg.appendChild(svgEl("line", { x1: prev.x, y1: prev.y, x2: p.x, y2: p.y, class: "c-edge" }));
+      svg.appendChild(svgEl("circle", { cx: p.x, cy: p.y, r: 2.6, class: "c-point" }));
+    });
+    finish();
+    return;
+  }
+
+  let i = 0;
+  const step = () => {
+    if (i >= hops.length) return finish();
+    const p = hops[i];
+    const prev = i === 0 ? { x: cx, y: cy } : hops[i - 1];
+    svg.appendChild(svgEl("line", { x1: prev.x, y1: prev.y, x2: p.x, y2: p.y, class: "c-edge" }));
+    svg.appendChild(svgEl("circle", { cx: p.x, cy: p.y, r: 2.6, class: "c-point" }));
+    caption.textContent = layerCaption(p.layer, p.title);
+    i++;
+    constellationTimer = setTimeout(step, 55);
+  };
+  step();
 }
 
 async function run() {
+  clearTimeout(autoplayTimer);
   const q = $("q").value.trim();
   if (!q) return;
+  const seq = ++searchSeq;
   $("go").disabled = true;
   $("meta").innerHTML = `<span class="chip">searching…</span>`;
   $("results").innerHTML = "";
   try {
     const r = await fetch(`/api/search?q=${encodeURIComponent(q)}&k=10`);
+    if (!r.ok) {
+      let detail = "";
+      try {
+        const errBody = await r.json();
+        if (errBody && typeof errBody.detail === "string") detail = errBody.detail;
+        else if (errBody && Array.isArray(errBody.detail) && errBody.detail[0] && errBody.detail[0].msg) {
+          detail = errBody.detail[0].msg;
+        }
+      } catch {
+      }
+      throw new Error(detail || `${r.status} ${r.statusText}`);
+    }
     const d = await r.json();
+    if (seq !== searchSeq) return;
     $("meta").innerHTML =
       `<span class="chip lat">search <b>${d.latency_ms.toFixed(2)} ms</b></span>` +
       `<span class="chip">over <b>${d.count.toLocaleString()}</b> docs</span>` +
@@ -376,23 +499,31 @@ async function run() {
     if (!d.results.length) {
       $("results").innerHTML =
         `<div class="empty">No matches found. Try rephrasing, or pick one of the example queries above.</div>`;
+      renderConstellation(d.trace || [], [],
+        { totalVisited: d.trace_total_visited || 0, latency: d.latency_ms, count: d.count });
       return;
     }
-    animateLinks(d.results.length);
+    renderConstellation(d.trace || [], d.results,
+      { totalVisited: d.trace_total_visited || 0, latency: d.latency_ms, count: d.count });
+    const scoreTitle = isL2Metric()
+      ? "L2 distance to your query. Lower means closer in meaning; unlike cosine similarity, it is not bounded to 0-1."
+      : "Cosine similarity to your query, from 0 to 1. Higher means closer in meaning.";
+    const scoreLabel = isL2Metric() ? "distance" : "match";
     $("results").innerHTML = d.results.map(x => `
       <div class="card">
         <div class="top">
           <a class="title" href="${escAttr(x.url || '#')}" target="_blank" rel="noopener"><span class="rank">${String(x.rank).padStart(2, "0")}</span>${esc(x.title)}</a>
-          <span class="scorewrap" title="Cosine similarity to your query, from 0 to 1. Higher means closer in meaning.">
-            <span class="score">${x.score.toFixed(3)}</span><span class="scorelbl">match</span>
+          <span class="scorewrap" title="${escAttr(scoreTitle)}">
+            <span class="score">${x.score.toFixed(3)}</span><span class="scorelbl">${scoreLabel}</span>
           </span>
         </div>
         <div class="snip">${esc(x.text)}</div>
       </div>`).join("");
   } catch (e) {
+    if (seq !== searchSeq) return;
     $("meta").innerHTML = `<span class="chip">error: ${esc(String(e))}</span>`;
   } finally {
-    $("go").disabled = false;
+    if (seq === searchSeq) $("go").disabled = false;
   }
 }
 
@@ -401,6 +532,12 @@ $("q").addEventListener("keydown", (e) => { if (e.key === "Enter") run(); });
 renderExamples();
 info();
 $("q").focus();
+
+const autoplayTimer = setTimeout(() => {
+  if ($("q").value.trim()) return;
+  $("q").value = "a quiet beach town in southern Europe";
+  run();
+}, 900);
 </script>
 </body>
 </html>

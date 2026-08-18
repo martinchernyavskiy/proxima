@@ -1,28 +1,3 @@
-//! Hierarchical Navigable Small World (HNSW) approximate nearest-neighbor index.
-//!
-//! HNSW (Malkov & Yashunin, 2016) is a multi-layer proximity graph. The bottom
-//! layer connects every vector; each higher layer is an exponentially sparser
-//! "express lane". A search greedily descends the sparse upper layers to land
-//! near the query, then runs a best-first beam search (width `ef`) on the dense
-//! bottom layer. This turns the O(N) brute-force scan into roughly O(log N)
-//! distance evaluations, at the cost of *approximate* recall — the tradeoff this
-//! whole project is built to measure.
-//!
-//! Lineage note: HNSW's layered, skip-on-the-express-lane structure is the
-//! direct descendant of the skip list — a probabilistic tower of linked lists.
-//!
-//! **Concurrency.** Construction is parallelized across vectors with rayon. The
-//! adjacency lists are *moved* into a temporary `Vec<RwLock<..>>` mirror for the
-//! build; independent inserts proceed concurrently and serialize only when they
-//! touch the same node, and a thread never holds two node locks at once
-//! (deadlock-free). After the build the inner `Vec`s are moved back into the
-//! plain `links`, so the **query path is lock-free** — `search` reads the plain
-//! adjacency lists with zero locking or copying. One generic traversal (the
-//! [`Graph`] trait) serves both: `Plain` for queries, `Locked` for the build.
-//!
-//! Tunables: `m` (degree; bottom layer gets `2*m`), `ef_construction` (build beam
-//! width), `ef_search` (query beam width — the recall/latency dial).
-
 use std::cmp::Ordering;
 use std::collections::{BinaryHeap, HashSet};
 use std::hash::{BuildHasherDefault, Hasher};
@@ -35,9 +10,6 @@ use serde::{Deserialize, Serialize};
 use crate::distance::{inner_product, l2_sqr};
 use crate::metric::Metric;
 
-/// A trivial hasher for the per-search `visited` set. Keys are node ids (`u32`),
-/// so the default SipHash is pure overhead. A single multiply by a 64-bit odd
-/// constant (Fibonacci hashing) spreads the bits enough for these small sets.
 #[derive(Default)]
 struct U32Hasher(u64);
 impl Hasher for U32Hasher {
@@ -55,7 +27,8 @@ impl Hasher for U32Hasher {
 }
 type VisitedSet = HashSet<u32, BuildHasherDefault<U32Hasher>>;
 
-/// Construction / search parameters.
+type TracedSearchResult = (Vec<(u32, f32)>, Vec<(u32, u32, f32)>, usize);
+
 #[derive(Clone, Copy, Debug, Serialize, Deserialize)]
 pub struct HnswParams {
     pub m: usize,
@@ -70,8 +43,6 @@ impl Default for HnswParams {
     }
 }
 
-/// A (distance, id) pair in "smaller is closer" key space (L2 → squared
-/// distance, InnerProduct → negated dot). `Ord` is by distance via `total_cmp`.
 #[derive(Clone, Copy, PartialEq)]
 struct Neighbor {
     dist: f32,
@@ -89,13 +60,10 @@ impl Ord for Neighbor {
     }
 }
 
-// Abstracts neighbor iteration so one traversal implementation serves both the
-// lock-free query path and the locked, concurrent build path.
 trait Graph {
     fn for_each<F: FnMut(u32)>(&self, node: u32, layer: usize, f: F);
 }
 
-/// Plain adjacency lists — used by queries (no concurrent writers → no locks).
 struct Plain<'a>(&'a [Vec<Vec<u32>>]);
 impl Graph for Plain<'_> {
     #[inline]
@@ -108,7 +76,6 @@ impl Graph for Plain<'_> {
     }
 }
 
-/// Per-node-locked adjacency lists — used only during parallel construction.
 struct Locked<'a>(&'a [RwLock<Vec<Vec<u32>>>]);
 impl Graph for Locked<'_> {
     #[inline]
@@ -122,25 +89,23 @@ impl Graph for Locked<'_> {
     }
 }
 
-// Entry-point state shared across build threads (a tiny critical section).
 struct Entry {
     point: Option<u32>,
     max_level: usize,
 }
 
-/// HNSW graph index.
 #[derive(Serialize, Deserialize)]
 pub struct Hnsw {
     dim: usize,
     metric: Metric,
     params: HnswParams,
-    m_max0: usize, // max degree on layer 0
-    m_max: usize,  // max degree on layers > 0
-    ml: f64,       // level-generation normalization, 1 / ln(m)
+    m_max0: usize,
+    m_max: usize,
+    ml: f64,
 
-    data: Vec<f32>,            // n * dim, row-major
-    links: Vec<Vec<Vec<u32>>>, // links[node][layer] -> neighbor ids (plain: lock-free query)
-    levels: Vec<usize>,        // top layer of each node
+    data: Vec<f32>,
+    links: Vec<Vec<Vec<u32>>>,
+    levels: Vec<usize>,
     entry_point: Option<u32>,
     max_level: usize,
     rng_state: u64,
@@ -151,6 +116,8 @@ impl Hnsw {
     pub fn new(dim: usize, metric: Metric, params: HnswParams) -> Self {
         assert!(dim > 0, "dim must be > 0");
         assert!(params.m >= 2, "m must be >= 2");
+        assert!(params.ef_construction >= 1, "ef_construction must be >= 1");
+        assert!(params.ef_search >= 1, "ef_search must be >= 1");
         Hnsw {
             dim,
             metric,
@@ -187,17 +154,14 @@ impl Hnsw {
         self.params.ef_search = ef;
     }
 
-    /// Persist the full graph + vectors to `path` (bincode).
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         crate::save_to(self, path)
     }
 
-    /// Load an index previously written by [`Hnsw::save`].
     pub fn load(path: &Path) -> std::io::Result<Self> {
         crate::load_from(path)
     }
 
-    /// Resident memory of the index: vectors + adjacency lists.
     pub fn memory_bytes(&self) -> usize {
         let vecs = self.data.len() * std::mem::size_of::<f32>();
         let mut edges = 0usize;
@@ -215,7 +179,6 @@ impl Hnsw {
         &self.data[i..i + self.dim]
     }
 
-    // Distance in "smaller is closer" key space.
     #[inline]
     fn key(&self, a: &[f32], b: &[f32]) -> f32 {
         match self.metric {
@@ -224,8 +187,14 @@ impl Hnsw {
         }
     }
 
-    // Random level ~ floor(-ln(U) * mL): the geometric distribution that makes
-    // upper layers exponentially sparse. Single-threaded (called in `add`).
+    #[inline]
+    fn to_natural(&self, d: f32) -> f32 {
+        match self.metric {
+            Metric::L2 => d.sqrt(),
+            Metric::InnerProduct => -d,
+        }
+    }
+
     fn random_level(&mut self) -> usize {
         self.rng_state = self.rng_state.wrapping_add(0x9E3779B97F4A7C15);
         let mut z = self.rng_state;
@@ -236,7 +205,6 @@ impl Hnsw {
         (-u.ln() * self.ml) as usize
     }
 
-    /// Append row-major vectors and link them into the graph in parallel.
     pub fn add(&mut self, vectors: &[f32]) {
         assert!(vectors.len().is_multiple_of(self.dim), "vectors length not a multiple of dim");
         let count = vectors.len() / self.dim;
@@ -245,15 +213,12 @@ impl Hnsw {
         }
         let start = self.n;
 
-        // Sequential prep: data, levels (RNG is single-threaded).
         self.data.extend_from_slice(vectors);
         let mut new_levels = Vec::with_capacity(count);
         for _ in 0..count {
             new_levels.push(self.random_level());
         }
 
-        // Move existing adjacency lists into a locked mirror and append empty
-        // slots for the new nodes. Moves are pointer-cheap (no list copying).
         let mut locked: Vec<RwLock<Vec<Vec<u32>>>> =
             std::mem::take(&mut self.links).into_iter().map(RwLock::new).collect();
         for &lvl in &new_levels {
@@ -273,8 +238,6 @@ impl Hnsw {
             }
         }
 
-        // Parallel linking. `this` is a shared reborrow; the closure only reads
-        // self and mutates through the locks in `locked` / `entry`.
         {
             let this: &Hnsw = self;
             (first..start + count)
@@ -282,14 +245,12 @@ impl Hnsw {
                 .for_each(|id| this.link_node(id as u32, &locked, &entry));
         }
 
-        // Move adjacency lists back into the plain, lock-free representation.
         self.links = locked.into_iter().map(|l| l.into_inner().unwrap()).collect();
         let e = entry.into_inner().unwrap();
         self.entry_point = e.point;
         self.max_level = e.max_level;
     }
 
-    // Insert node `id` (slots pre-allocated) into the locked graph.
     fn link_node(&self, id: u32, links: &[RwLock<Vec<Vec<u32>>>], entry: &Mutex<Entry>) {
         let v = self.vec_at(id);
         let level = self.levels[id as usize];
@@ -303,8 +264,9 @@ impl Hnsw {
             cur = self.greedy_descend(&graph, v, cur, lc);
         }
 
+        let live_max_level = entry.lock().unwrap().max_level;
         let mut entry_points = vec![cur];
-        let top = level.min(max_level);
+        let top = level.min(live_max_level);
         for lc in (0..=top).rev() {
             let candidates =
                 self.search_layer(&graph, v, &entry_points, self.params.ef_construction, lc, None);
@@ -329,9 +291,6 @@ impl Hnsw {
         }
     }
 
-    // Add `neighbor` to `node`'s list on `layer`, pruning back to `cap` via the
-    // heuristic if it overflows. Holds only `node`'s write lock (no nested
-    // locks), so concurrent inserts can never deadlock.
     fn connect(&self, links: &[RwLock<Vec<Vec<u32>>>], node: u32, neighbor: u32, layer: usize,
                cap: usize) {
         let mut g = links[node as usize].write().unwrap();
@@ -346,7 +305,6 @@ impl Hnsw {
         }
     }
 
-    // Greedy single-best descent on an upper layer (search_layer with ef = 1).
     fn greedy_descend<G: Graph>(&self, g: &G, q: &[f32], entry: u32, layer: usize) -> u32 {
         let mut best = entry;
         let mut best_d = self.key(q, self.vec_at(entry));
@@ -366,17 +324,6 @@ impl Hnsw {
         }
     }
 
-    // Best-first beam search on a single layer; returns up to `ef` nearest nodes
-    // that pass `filter` (or all nodes, if `filter` is `None`).
-    //
-    // A node's *expansion* (whether we visit its neighbors) is decided purely by
-    // distance, exactly as in the unfiltered search; its *admission* into the
-    // result set `w` additionally requires the filter. This lets the traversal
-    // route through non-matching nodes to reach matching ones beyond them,
-    // rather than treating excluded nodes as absent from the graph — the
-    // standard technique for combining ANN search with attribute filtering.
-    // With `filter = None` this is byte-for-byte the unfiltered algorithm (the
-    // `passes` check is always true), so unfiltered search is unaffected.
     fn search_layer<G: Graph>(&self, g: &G, q: &[f32], entry: &[u32], ef: usize, layer: usize,
                               filter: Option<&[bool]>) -> Vec<Neighbor> {
         let mut visited: VisitedSet =
@@ -425,9 +372,61 @@ impl Hnsw {
         w.into_vec()
     }
 
-    // HNSW neighbor-selection heuristic (paper Algorithm 4, simple form): keep
-    // candidate `c` only if it is closer to the base point than to every
-    // already-selected neighbor — favors a diverse, navigable neighbor set.
+    fn search_layer_traced<G: Graph>(&self, g: &G, q: &[f32], entry: &[u32], ef: usize,
+                                     layer: usize) -> (Vec<Neighbor>, Vec<(u32, f32)>) {
+        let mut visited: VisitedSet =
+            HashSet::with_capacity_and_hasher(ef * 4, BuildHasherDefault::default());
+        let mut candidates: BinaryHeap<std::cmp::Reverse<Neighbor>> = BinaryHeap::new();
+        let mut w: BinaryHeap<Neighbor> = BinaryHeap::new();
+        let mut order: Vec<(u32, f32)> = Vec::new();
+
+        for &e in entry {
+            if visited.insert(e) {
+                let d = self.key(q, self.vec_at(e));
+                order.push((e, d));
+                candidates.push(std::cmp::Reverse(Neighbor { dist: d, id: e }));
+                w.push(Neighbor { dist: d, id: e });
+            }
+        }
+        while w.len() > ef {
+            w.pop();
+        }
+
+        while let Some(std::cmp::Reverse(c)) = candidates.pop() {
+            let worst = w.peek().map(|n| n.dist).unwrap_or(f32::MAX);
+            if c.dist > worst && w.len() >= ef {
+                break;
+            }
+            g.for_each(c.id, layer, |nb| {
+                if visited.insert(nb) {
+                    let d = self.key(q, self.vec_at(nb));
+                    order.push((nb, d));
+                    let worst = w.peek().map(|n| n.dist).unwrap_or(f32::MAX);
+                    if d < worst || w.len() < ef {
+                        candidates.push(std::cmp::Reverse(Neighbor { dist: d, id: nb }));
+                        w.push(Neighbor { dist: d, id: nb });
+                        if w.len() > ef {
+                            w.pop();
+                        }
+                    }
+                }
+            });
+        }
+        (w.into_vec(), order)
+    }
+
+    fn even_sample<T: Copy>(items: &[T], cap: usize) -> Vec<T> {
+        if items.is_empty() || cap == 0 {
+            return Vec::new();
+        }
+        if items.len() <= cap {
+            return items.to_vec();
+        }
+        (0..cap)
+            .map(|i| items[i * (items.len() - 1) / (cap - 1).max(1)])
+            .collect()
+    }
+
     fn select_neighbors(&self, candidates: &[Neighbor], m: usize) -> Vec<u32> {
         let mut sorted = candidates.to_vec();
         sorted.sort_unstable();
@@ -445,22 +444,11 @@ impl Hnsw {
         result.into_iter().map(|n| n.id).collect()
     }
 
-    /// Top-`k` for a single query using beam width `ef` (clamped to at least `k`).
-    /// Lock-free: reads the plain adjacency lists directly.
     pub fn search(&self, query: &[f32], k: usize, ef: usize, out_ids: &mut [i64],
                   out_dists: &mut [f32]) {
         self.search_impl(query, k, ef, None, out_ids, out_dists);
     }
 
-    /// Top-`k` restricted to vectors where `filter[id]` is `true`. `filter`
-    /// must have one entry per stored vector (`filter.len() == self.len()`).
-    ///
-    /// The graph traversal still expands through non-matching nodes — only
-    /// matching nodes are admitted into the result set — so a selective filter
-    /// costs more distance evaluations (more of the graph gets explored)
-    /// rather than silently starving the result set. `ef` is the same
-    /// recall/latency dial as unfiltered search: raise it if a selective
-    /// filter returns fewer than `k` results.
     pub fn search_filtered(&self, query: &[f32], k: usize, ef: usize, filter: &[bool],
                           out_ids: &mut [i64], out_dists: &mut [f32]) {
         assert_eq!(filter.len(), self.n, "filter length {} must equal index size {}",
@@ -471,6 +459,10 @@ impl Hnsw {
     fn search_impl(&self, query: &[f32], k: usize, ef: usize, filter: Option<&[bool]>,
                   out_ids: &mut [i64], out_dists: &mut [f32]) {
         assert_eq!(query.len(), self.dim, "query dim mismatch");
+        assert!(
+            query.iter().all(|x| x.is_finite()),
+            "query must not contain NaN or infinite values"
+        );
         if k == 0 {
             return;
         }
@@ -500,25 +492,55 @@ impl Hnsw {
         let take = k.min(w.len());
         for j in 0..take {
             out_ids[j] = w[j].id as i64;
-            out_dists[j] = match self.metric {
-                Metric::L2 => w[j].dist.sqrt(),
-                Metric::InnerProduct => -w[j].dist,
-            };
+            out_dists[j] = self.to_natural(w[j].dist);
         }
         pad(out_ids, out_dists, take);
     }
 
-    /// Batch search, parallelized across queries with rayon.
+    pub fn search_traced(&self, query: &[f32], k: usize, ef: usize, max_trace: usize)
+                        -> TracedSearchResult {
+        assert_eq!(query.len(), self.dim, "query dim mismatch");
+        assert!(
+            query.iter().all(|x| x.is_finite()),
+            "query must not contain NaN or infinite values"
+        );
+        if k == 0 {
+            return (Vec::new(), Vec::new(), 0);
+        }
+        let ep = match self.entry_point {
+            Some(p) => p,
+            None => return (Vec::new(), Vec::new(), 0),
+        };
+
+        let graph = Plain(&self.links);
+        let mut trace: Vec<(u32, u32, f32)> = Vec::new();
+        let mut cur = ep;
+        for lc in (1..=self.max_level).rev() {
+            cur = self.greedy_descend(&graph, query, cur, lc);
+            let d = self.key(query, self.vec_at(cur));
+            trace.push((lc as u32, cur, self.to_natural(d)));
+        }
+        let ef = ef.max(k);
+        let (mut w, order) = self.search_layer_traced(&graph, query, &[cur], ef, 0);
+        w.sort_unstable();
+        let total_visited = order.len();
+        trace.extend(
+            Self::even_sample(&order, max_trace)
+                .into_iter()
+                .map(|(id, d)| (0u32, id, self.to_natural(d))),
+        );
+
+        let take = k.min(w.len());
+        let results = w[..take].iter().map(|n| (n.id, self.to_natural(n.dist))).collect();
+
+        (results, trace, total_visited)
+    }
+
     pub fn search_batch(&self, queries: &[f32], k: usize, ef: usize, out_ids: &mut [i64],
                         out_dists: &mut [f32], num_threads: usize) {
         self.search_batch_impl(queries, k, ef, None, out_ids, out_dists, num_threads);
     }
 
-    /// Batch version of [`Hnsw::search_filtered`]: the same `filter` is applied
-    /// to every query in the batch.
-    // Adding `ef` and `filter` to the unfiltered signature pushes this past
-    // clippy's default arity threshold; a named-options struct would be
-    // over-engineering for an internal, already fully-documented method.
     #[allow(clippy::too_many_arguments)]
     pub fn search_batch_filtered(&self, queries: &[f32], k: usize, ef: usize, filter: &[bool],
                                 out_ids: &mut [i64], out_dists: &mut [f32], num_threads: usize) {
@@ -534,6 +556,17 @@ impl Hnsw {
             return;
         }
         let dim = self.dim;
+        assert!(
+            queries.len().is_multiple_of(dim),
+            "queries length {} is not a multiple of dim {}",
+            queries.len(),
+            dim
+        );
+        let nq = queries.len() / dim;
+        assert_eq!(out_ids.len(), nq * k,
+                   "out_ids length {} must equal nq * k ({nq} * {k})", out_ids.len());
+        assert_eq!(out_dists.len(), nq * k,
+                   "out_dists length {} must equal nq * k ({nq} * {k})", out_dists.len());
         let mut run = || {
             out_ids
                 .par_chunks_mut(k)
@@ -643,11 +676,11 @@ mod tests {
         let mut h = Hnsw::new(4, Metric::L2, HnswParams::default());
         let (mut ids, mut d) = (vec![0i64; 5], vec![0f32; 5]);
         h.search(&[0.0, 0.0, 0.0, 0.0], 5, 16, &mut ids, &mut d);
-        assert!(ids.iter().all(|&x| x == -1)); // empty index
+        assert!(ids.iter().all(|&x| x == -1));
         h.add(&[1.0, 0.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0]);
         h.search(&[1.0, 0.0, 0.0, 0.0], 5, 16, &mut ids, &mut d);
         assert_eq!(ids[0], 0);
-        assert_eq!(ids[2], -1); // only 2 nodes -> padded
+        assert_eq!(ids[2], -1);
     }
 
     #[test]
@@ -657,7 +690,6 @@ mod tests {
         let mut hnsw = Hnsw::new(dim, Metric::InnerProduct, HnswParams::default());
         hnsw.add(&data);
 
-        // ~10% of ids pass — a genuinely selective filter, not a near-no-op.
         let filter: Vec<bool> = (0..n).map(|i| i % 10 == 0).collect();
         let queries = gen(50, dim, 42);
         for qi in 0..50 {
@@ -681,7 +713,7 @@ mod tests {
         let mut flat = FlatIndex::new(dim, Metric::L2);
         flat.add(&data);
 
-        let filter: Vec<bool> = (0..n).map(|i| i % 5 == 0).collect(); // 20% pass
+        let filter: Vec<bool> = (0..n).map(|i| i % 5 == 0).collect();
         let queries = gen(100, dim, 7);
         let mut hit = 0usize;
         let mut total = 0usize;
@@ -709,8 +741,89 @@ mod tests {
         let (n, dim) = (100usize, 8usize);
         let mut h = Hnsw::new(dim, Metric::L2, HnswParams::default());
         h.add(&gen(n, dim, 1));
-        let bad_filter = vec![true; n - 1]; // wrong length
+        let bad_filter = vec![true; n - 1];
         let (mut ids, mut d) = (vec![0i64; 5], vec![0f32; 5]);
         h.search_filtered(&gen(1, dim, 2), 5, 64, &bad_filter, &mut ids, &mut d);
+    }
+
+    #[test]
+    fn traced_search_matches_untraced_search() {
+        let (n, dim, k, ef) = (2000usize, 32usize, 10usize, 64usize);
+        let mut hnsw = Hnsw::new(dim, Metric::InnerProduct, HnswParams { ef_search: ef, ..Default::default() });
+        hnsw.add(&gen(n, dim, 11));
+
+        let query = gen(1, dim, 77);
+        let (mut ids, mut dists) = (vec![0i64; k], vec![0f32; k]);
+        hnsw.search(&query, k, ef, &mut ids, &mut dists);
+
+        let (traced_results, trace, total_visited) = hnsw.search_traced(&query, k, ef, 1000);
+        let traced_ids: Vec<i64> = traced_results.iter().map(|&(id, _)| id as i64).collect();
+        let traced_dists: Vec<f32> = traced_results.iter().map(|&(_, d)| d).collect();
+        assert_eq!(ids, traced_ids, "search_traced must find the same ids as search");
+        for (a, b) in dists.iter().zip(traced_dists.iter()) {
+            assert!((a - b).abs() < 1e-4, "scores must match: {a} vs {b}");
+        }
+        assert!(!trace.is_empty(), "trace should record at least the entry point");
+        assert!(total_visited > 0);
+        for &(_, id, _) in &trace {
+            assert!((id as usize) < n, "trace must only contain real node ids");
+        }
+    }
+
+    #[test]
+    fn traced_search_trace_is_capped() {
+        let (n, dim, ef) = (5000usize, 32usize, 200usize);
+        let mut hnsw = Hnsw::new(dim, Metric::L2, HnswParams { ef_search: ef, ..Default::default() });
+        hnsw.add(&gen(n, dim, 3));
+
+        let query = gen(1, dim, 5);
+        let (_, trace, total_visited) = hnsw.search_traced(&query, 10, ef, 5);
+        let layer0_steps = trace.iter().filter(|&&(layer, _, _)| layer == 0).count();
+        assert!(layer0_steps <= 5, "layer-0 trace must respect max_trace, got {layer0_steps}");
+        assert!(total_visited >= layer0_steps, "total_visited must be at least the sampled layer-0 steps");
+    }
+
+    #[test]
+    fn traced_search_on_empty_index() {
+        let h = Hnsw::new(8, Metric::L2, HnswParams::default());
+        let (results, trace, total_visited) = h.search_traced(&[0.0; 8], 5, 16, 40);
+        assert!(results.is_empty());
+        assert!(trace.is_empty());
+        assert_eq!(total_visited, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "ef_search must be >= 1")]
+    fn new_rejects_zero_ef_search() {
+        Hnsw::new(4, Metric::L2, HnswParams { ef_search: 0, ..Default::default() });
+    }
+
+    #[test]
+    #[should_panic(expected = "must not contain NaN or infinite values")]
+    fn search_rejects_non_finite_query() {
+        let mut h = Hnsw::new(4, Metric::L2, HnswParams::default());
+        h.add(&gen(50, 4, 1));
+        let (mut ids, mut d) = (vec![0i64; 5], vec![0f32; 5]);
+        h.search(&[0.0, f32::NAN, 0.0, 0.0], 5, 16, &mut ids, &mut d);
+    }
+
+    #[test]
+    #[should_panic(expected = "must not contain NaN or infinite values")]
+    fn search_traced_rejects_non_finite_query() {
+        let mut h = Hnsw::new(4, Metric::L2, HnswParams::default());
+        h.add(&gen(50, 4, 1));
+        h.search_traced(&[f32::INFINITY, 0.0, 0.0, 0.0], 5, 16, 10);
+    }
+
+    #[test]
+    #[should_panic(expected = "must equal nq * k")]
+    fn search_batch_rejects_mismatched_output_length() {
+        let (n, dim, k) = (100usize, 8usize, 5usize);
+        let mut h = Hnsw::new(dim, Metric::L2, HnswParams::default());
+        h.add(&gen(n, dim, 1));
+        let queries = gen(3, dim, 2);
+        let mut ids = vec![0i64; k];
+        let mut d = vec![0f32; k];
+        h.search_batch(&queries, k, 16, &mut ids, &mut d, 0);
     }
 }

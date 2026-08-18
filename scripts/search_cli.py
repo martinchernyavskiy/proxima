@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-"""Query a built corpus from the terminal.
-
-    # one-shot
-    python scripts/search_cli.py --corpus data/wiki_simple "how do volcanoes form"
-
-    # interactive REPL
-    python scripts/search_cli.py --corpus data/wiki_simple
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -31,7 +21,7 @@ def main() -> None:
 
     def run(q: str) -> None:
         results, ms = ss.query(q, k=args.k)
-        print(f"\n  {q!r}  —  {ms:.2f} ms over {ss.index.size:,} docs")
+        print(f"\n  {q!r}: {ms:.2f} ms over {ss.index.size:,} docs")
         for r in results:
             print(f"  {r.rank:2d}. [{r.score:.3f}] {r.title}")
             print(f"        {trim_snippet(r.text, 110)}")

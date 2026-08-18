@@ -1,23 +1,4 @@
 #!/usr/bin/env python3
-"""Render the recall-vs-latency tradeoff curves from the captured benchmark
-JSON (bench/results/*.json) into docs/assets/*.{svg,png} for the README/writeup.
-
-    python bench/plot_results.py
-
-Two figures:
-  recall_latency_sift1m — Proxima vs FAISS HNSW at 1M scale (the headline
-                          "how close to FAISS" comparison).
-  recall_latency_wiki   — Proxima's own ef_search sweep vs its exact
-                          baseline on the 100k Wikipedia corpus.
-
-Style follows the project's data-viz conventions: a validated categorical pair
-(blue/aqua) with the CVD-safe fixed slot order, a legend plus sparing direct
-labels at the sweep endpoints (muted-ink text, identity carried by the colored
-end-dot beside it), hairline recessive gridlines, log latency axis with
-explicit ticks (the data spans less than one decade, so the default log
-locator would only ever show a single tick), single y-axis.
-"""
-
 from __future__ import annotations
 
 import json
@@ -32,7 +13,6 @@ matplotlib.use("svg")
 HERE = Path(__file__).resolve().parent
 ASSETS = HERE.parent / "docs" / "assets"
 
-# Validated categorical slots (references/palette.md), fixed order.
 BLUE = "#2a78d6"
 AQUA = "#1baf7a"
 SURFACE = "#fcfcfb"
@@ -43,8 +23,6 @@ INK_MUTED = "#8a8980"
 
 
 def _header(fig, title: str, subtitle: str) -> None:
-    # Figure-level text with a reserved top margin, rather than ax.set_title +
-    # an axes-coordinate subtitle (which collide once the title wraps/bolds).
     fig.text(0.03, 0.97, title, color=INK_PRIMARY, fontsize=13,
              fontweight="bold", ha="left", va="top")
     fig.text(0.03, 0.905, subtitle, color=INK_SECONDARY, fontsize=9.5,
@@ -67,7 +45,6 @@ def _style(ax, xlabel: str, ylabel: str) -> None:
 
 
 def _series(ax, points, color, label):
-    """points: list of (latency_ms, recall, ef) ascending by ef."""
     xs = [p[0] for p in points]
     ys = [p[1] for p in points]
     ax.plot(xs, ys, color=color, linewidth=2, solid_capstyle="round",
@@ -78,17 +55,12 @@ def _series(ax, points, color, label):
 
 
 def _label_point(ax, x, y, text, xytext, ha="left"):
-    # Sparing direct label — muted text, identity carried by the colored dot
-    # beside it, not by the text color.
     ax.annotate(text, (x, y), textcoords="offset points", xytext=xytext,
                 fontsize=8, color=INK_MUTED, ha=ha)
 
 
 def _set_log_ticks(ax, ticks_ms: list[float], data_min: float, data_max: float,
                    pad_frac: float = 0.22) -> None:
-    # xlim is padded from the ACTUAL data extent, not the tick list — a
-    # hand-picked "clean" tick range that doesn't bracket the real min/max
-    # silently clips a point off the edge of the chart.
     ax.set_xscale("log")
     ax.set_xticks(ticks_ms)
     ax.xaxis.set_major_formatter(mticker.FuncFormatter(lambda x, _: f"{x:g} ms"))
@@ -97,8 +69,6 @@ def _set_log_ticks(ax, ticks_ms: list[float], data_min: float, data_max: float,
 
 
 def _save(fig, stem: str) -> None:
-    # SVG is the primary embed (crisp at any size); PNG is a bulletproof
-    # fallback for viewers/tools that don't rasterize SVG.
     svg_path = ASSETS / f"{stem}.svg"
     png_path = ASSETS / f"{stem}.png"
     fig.savefig(svg_path, format="svg")
@@ -130,7 +100,7 @@ def plot_sift1m(results: list[dict]) -> None:
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.2f}"))
     _style(ax, "p50 query latency (log scale)", "recall@10")
 
-    _header(fig, "SIFT1M: recall vs. latency — Proxima vs. FAISS",
+    _header(fig, "SIFT1M: recall vs. latency, Proxima vs. FAISS",
             "1M vectors, 128-dim, k=10, identical queries + ground truth")
     ax.legend(loc="lower right", frameon=False, fontsize=9, labelcolor=INK_SECONDARY,
              handlelength=1.6)
@@ -141,7 +111,7 @@ def plot_sift1m(results: list[dict]) -> None:
 def plot_wiki(results: list[dict]) -> None:
     by_name = {r["name"]: r for r in results}
     sweep = [(by_name[f"HNSW(ef={ef})"]["p50_ms"], by_name[f"HNSW(ef={ef})"]["recall_at_k"], ef)
-             for ef in (16, 32, 64, 128, 256)]
+             for ef in (16, 32, 64, 128)]
     flat = by_name["FlatIndex (exact)"]
 
     fig, ax = plt.subplots(figsize=(7.4, 5.2))
@@ -149,14 +119,13 @@ def plot_wiki(results: list[dict]) -> None:
 
     xs, ys = _series(ax, sweep, BLUE, "HNSW (ef_search sweep)")
     _label_point(ax, xs[0], ys[0], "ef=16", (7, -3))
-    _label_point(ax, xs[-1], ys[-1], "ef=256", (-10, -14), ha="right")
+    _label_point(ax, xs[-1], ys[-1], "ef=128", (-10, -14), ha="right")
 
-    # Exact baseline: a single reference point, not a swept series — muted
-    # ink + a distinct marker shape, not a second categorical hue.
     fx, fy = flat["p50_ms"], flat["recall_at_k"]
     ax.scatter([fx], [fy], s=90, marker="D", color=INK_SECONDARY,
                edgecolors=SURFACE, linewidths=2, zorder=4, label="Flat (exact)")
-    _label_point(ax, fx, fy, "exact, ~6x slower", (-10, 8), ha="right")
+    slowdown = fx / xs[-1]
+    _label_point(ax, fx, fy, f"exact, ~{slowdown:.1f}x slower", (-10, 8), ha="right")
 
     all_x = xs + [fx]
     _set_log_ticks(ax, [0.2, 0.5, 1, 2, 5], min(all_x), max(all_x))
@@ -165,7 +134,7 @@ def plot_wiki(results: list[dict]) -> None:
     _style(ax, "p50 query latency (log scale)", "recall@10")
 
     _header(fig, "Wikipedia 100k: HNSW's recall/latency dial vs. exact search",
-            "100k articles, 384-dim, k=10 — ef_search is the tuning knob")
+            "100k articles, 384-dim, k=10, ef_search is the tuning knob")
     ax.legend(loc="lower right", frameon=False, fontsize=9, labelcolor=INK_SECONDARY,
              handlelength=1.6)
     _save(fig, "recall_latency_wiki")

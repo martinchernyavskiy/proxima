@@ -1,13 +1,3 @@
-"""Tests for metadata-filtered search (`search_filtered` / `search_batch_filtered`)
-across all three index types.
-
-Filtering is the difference between a toy ANN benchmark and something closer to
-a real vector database: "find nearest neighbors WHERE category = X" is a core
-feature of Pinecone/Weaviate/Milvus. Naive post-hoc filtering (search top-k,
-then discard non-matching results) silently wrecks recall once the filter is
-selective; these indexes filter *during* the search itself.
-"""
-
 import numpy as np
 import pytest
 
@@ -26,7 +16,6 @@ def data():
 
 @pytest.fixture
 def mask(data):
-    # A genuinely selective filter (~20% pass), not a near-no-op.
     rng = np.random.default_rng(1)
     return rng.random(len(data)) < 0.2
 

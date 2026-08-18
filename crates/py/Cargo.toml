@@ -6,7 +6,6 @@ edition.workspace = true
 license.workspace = true
 
 [lib]
-# Imported from Python as `proxima._core`.
 name = "_core"
 crate-type = ["cdylib"]
 

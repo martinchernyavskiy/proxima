@@ -1,5 +1,2 @@
-# Build the distance kernels for THIS machine's ISA (NEON on Apple Silicon,
-# AVX/AVX-512 on x86). Combined with the chunked accumulators in distance.rs,
-# this is what lets the inner loops vectorize.
 [build]
 rustflags = ["-C", "target-cpu=native"]

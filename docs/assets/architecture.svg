@@ -46,15 +46,15 @@
   <!-- ============ PyO3 bridge ============ -->
   <rect x="40" y="204" width="960" height="64" rx="10" fill="#eef4fc" stroke="#bcd6f4" stroke-width="1.4"/>
   <text x="60" y="230" font-size="13" font-weight="700" fill="#184f95" letter-spacing="0.3">PyO3 BINDINGS</text>
-  <text x="60" y="250" font-size="11" fill="#33629f">searchforge._core — zero-copy numpy interop · GIL released around every search call</text>
+  <text x="60" y="250" font-size="11" fill="#33629f">proxima._core: zero-copy numpy interop · GIL released around every search call</text>
   <text x="620" y="250" font-size="10.5" fill="#5c85bc" font-style="italic">crates/py</text>
 
   <path d="M520,268 V300" stroke="#8a8980" stroke-width="1.5" marker-end="url(#arrow)"/>
 
   <!-- ============ Rust core ============ -->
   <rect x="40" y="304" width="960" height="222" rx="10" fill="none" stroke="#2a78d6" stroke-width="1.8"/>
-  <text x="60" y="330" font-size="13" font-weight="700" fill="#184f95" letter-spacing="0.5">RUST CORE — searchforge-core</text>
-  <text x="60" y="348" font-size="10.5" fill="#7a7972">pure Rust, zero Python dependency — cargo test / cargo bench directly</text>
+  <text x="60" y="330" font-size="13" font-weight="700" fill="#184f95" letter-spacing="0.5">RUST CORE: proxima-core</text>
+  <text x="60" y="348" font-size="10.5" fill="#7a7972">pure Rust, zero Python dependency, cargo test / cargo bench directly</text>
 
   <!-- FlatIndex -->
   <rect x="60" y="364" width="216" height="88" rx="8" fill="#eaf2fd" stroke="#2a78d6" stroke-width="1.3"/>
@@ -86,7 +86,7 @@
 
   <!-- persistence bar -->
   <rect x="60" y="466" width="920" height="42" rx="8" fill="#f5f5f3" stroke="#c7c6c0" stroke-width="1.2"/>
-  <text x="520" y="492" font-size="11" fill="#52514e" text-anchor="middle">persistence (serde + bincode) — every index saves/loads to disk; a 1M-vector HNSW graph loads in seconds, not minutes</text>
+  <text x="520" y="492" font-size="11" fill="#52514e" text-anchor="middle">persistence (serde + bincode): every index saves/loads to disk; a 1M-vector HNSW graph loads in seconds, not minutes</text>
 
   <!-- connectors from the Rust-core boundary down to the two satellites -->
   <path d="M168,526 V556" stroke="#1baf7a" stroke-width="1.6" stroke-dasharray="4,3" marker-end="url(#arrow)"/>
@@ -94,15 +94,15 @@
 
   <!-- GPU path (satellite, outside the Rust-core border) -->
   <rect x="60" y="560" width="360" height="70" rx="8" fill="#e9f8f1" stroke="#1baf7a" stroke-width="1.4"/>
-  <text x="240" y="585" font-size="12" font-weight="700" fill="#0b6b47" text-anchor="middle">CUDA kernel (feature-gated) — FFI</text>
+  <text x="240" y="585" font-size="12" font-weight="700" fill="#0b6b47" text-anchor="middle">CUDA kernel (feature-gated) via FFI</text>
   <text x="240" y="603" font-size="10" fill="#0b6b47" text-anchor="middle">one block/query · coalesced transposed reads</text>
   <text x="240" y="619" font-size="10" fill="#0b6b47" text-anchor="middle" font-weight="600">RTX 4070 Ti: 18.9x over 8-core CPU, exact</text>
 
   <!-- FAISS comparison (satellite, outside the Rust-core border) -->
   <rect x="680" y="560" width="300" height="70" rx="8" fill="#ffffff" stroke="#c7c6c0" stroke-width="1.3" stroke-dasharray="3,3"/>
   <text x="830" y="586" font-size="12" font-weight="700" fill="#52514e" text-anchor="middle">FAISS</text>
-  <text x="830" y="604" font-size="10" fill="#7a7972" text-anchor="middle">benchmarked against on SIFT1M —</text>
+  <text x="830" y="604" font-size="10" fill="#7a7972" text-anchor="middle">benchmarked against on SIFT1M,</text>
   <text x="830" y="619" font-size="10" fill="#7a7972" text-anchor="middle">not a dependency of the engine</text>
 
-  <text x="520" y="670" font-size="10.5" fill="#9a988f" text-anchor="middle">crates/core (pure Rust) · crates/py (PyO3) · python/searchforge (orchestration) · bench/ (harness + FAISS comparison)</text>
+  <text x="520" y="670" font-size="10.5" fill="#9a988f" text-anchor="middle">crates/core (pure Rust) · crates/py (PyO3) · python/proxima (orchestration) · bench/ (harness + FAISS comparison)</text>
 </svg>

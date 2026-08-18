@@ -1,14 +1,3 @@
-#!/usr/bin/env python3
-"""Build a searchable corpus: download text, embed it, and persist vectors +
-metadata under a data directory.
-
-    python scripts/build_corpus.py --limit 100000 --out data/wiki_simple
-
-Re-running with the same --out is cheap to inspect; embedding is the slow part
-(runs on MPS/GPU when available). The output is consumed by the demo and the
-benchmark harness.
-"""
-
 from __future__ import annotations
 
 import argparse

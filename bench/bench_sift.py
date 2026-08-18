@@ -1,15 +1,3 @@
-#!/usr/bin/env python3
-"""SIFT1M benchmark — Proxima vs FAISS on identical data, queries, and
-ground truth.
-
-    python bench/bench_sift.py                  # full 1M, all indexes + FAISS
-    python bench/bench_sift.py --n 200000 --no-faiss   # quick subset check
-
-Reports recall@k (against the dataset's held-out ground truth), single-query
-latency p50/p99, throughput, and index memory for the exact, HNSW, and PQ
-indexes from both engines. "Within X× of FAISS" is an honest, credible flex.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -23,10 +11,10 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from datasets import load_sift  # noqa: E402
-from harness import benchmark_index, exact_ground_truth, format_table  # noqa: E402
+from datasets import load_sift
+from harness import benchmark_index, exact_ground_truth, format_table
 
-from proxima import FlatIndex, HnswIndex, Metric, PqIndex  # noqa: E402
+from proxima import FlatIndex, HnswIndex, Metric, PqIndex
 
 
 def main() -> None:
@@ -43,6 +31,10 @@ def main() -> None:
     p.add_argument("--no-faiss", action="store_true")
     p.add_argument("--json", type=str, default=None)
     args = p.parse_args()
+    if args.n < 0:
+        p.error("--n must be >= 0")
+    if args.nq < 0:
+        p.error("--nq must be >= 0")
 
     ds = load_sift(args.root)
     subset = bool(args.n and args.n < len(ds.base))
@@ -56,8 +48,6 @@ def main() -> None:
     print(f"{ds.name}: base={len(base):,} dim={dim} queries={len(queries):,} "
           f"k={args.k} metric={ds.metric}")
 
-    # The shipped ground truth is for the full 1M base; if we subset the base
-    # the ids no longer apply, so recompute exact GT on the subset.
     if subset:
         print("  subset: recomputing exact ground truth ...", flush=True)
         gt = exact_ground_truth(base, queries, args.k, metric)
@@ -71,7 +61,6 @@ def main() -> None:
         print(f"  built {label} in {time.perf_counter() - t0:.1f}s", flush=True)
         return idx
 
-    # ---- Proxima ----
     px_flat = build("PX Flat", lambda: _add(FlatIndex(dim=dim, metric=metric), base))
     results.append(benchmark_index("PX Flat (exact)", px_flat, queries, args.k, gt))
 
@@ -92,7 +81,6 @@ def main() -> None:
     print(f"  PX PQ compression: {px_pq.compression_ratio:.1f}x "
           f"({px_pq.raw_bytes / 1e6:.0f}MB -> {px_pq.memory_bytes / 1e6:.1f}MB)")
 
-    # ---- FAISS ----
     if not args.no_faiss:
         import faiss_compare as fc
 

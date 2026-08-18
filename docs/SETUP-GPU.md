@@ -3,15 +3,15 @@
 The GPU exact-search path (`crates/core/cuda/knn.cu` + `src/gpu.rs`) is
 feature-gated behind `--features cuda`, so it's inert on machines without an
 NVIDIA toolchain. To get a real, validated GPU-vs-CPU speedup number, build and
-run it on the desktop with the **RTX 4070 Ti** (Ada, compute capability 8.9 —
-plenty of VRAM for million-vector exact search).
+run it on the desktop with the **RTX 4070 Ti** (Ada, compute capability 8.9,
+with plenty of VRAM for million-vector exact search).
 
 The benchmark (`examples/gpu_knn.rs`) generates its own synthetic data, so it
-needs **only the source code** — no corpus or dataset download.
+needs **only the source code**, no corpus or dataset download.
 
 ---
 
-## Step 0 — get the code onto the desktop
+## Step 0: get the code onto the desktop
 
 Cleanest (and you want this for the résumé anyway): push to GitHub, then clone on the desktop.
 
@@ -24,9 +24,9 @@ gh repo create proxima --private --source=. --remote=origin --push
 git clone https://github.com/<you>/proxima.git && cd proxima
 ```
 
-(A plain folder copy works too — the `data/` and `target/` dirs are gitignored and not needed.)
+(A plain folder copy works too. The `data/` and `target/` dirs are gitignored and not needed.)
 
-## Step 1 — prerequisites
+## Step 1: prerequisites
 
 Both OSes need: the **NVIDIA driver** (already installed for gaming), the
 **CUDA Toolkit 12.x** (provides `nvcc`), and **Rust** (<https://rustup.rs>).
@@ -34,14 +34,14 @@ Verify with `nvcc --version` and `nvidia-smi`.
 
 ### Windows
 - Install the **CUDA Toolkit** from NVIDIA (sets the `CUDA_PATH` env var automatically).
-- Install **Visual Studio 2022 Build Tools** with the *"Desktop development with C++"* workload — `nvcc` needs the MSVC host compiler (`cl.exe`).
+- Install **Visual Studio 2022 Build Tools** with the *"Desktop development with C++"* workload: `nvcc` needs the MSVC host compiler (`cl.exe`).
 - **Build from the "x64 Native Tools Command Prompt for VS 2022"** (Start menu) so both `cl.exe` and `nvcc` are on `PATH`. This is the single most common source of build errors.
 
 ### Linux
 - Install the CUDA Toolkit (distro package or NVIDIA's apt/dnf repo) and `gcc`.
 - Ensure `/usr/local/cuda/bin` is on `PATH` and `nvcc --version` works.
 
-## Step 2 — build and run
+## Step 2: build and run
 
 ```bash
 cargo run --release --example gpu_knn --features cuda
@@ -58,7 +58,7 @@ exact k-NN: N=1000000 dim=128 queries=2000 k=10 metric=L2
   GPU exact           :    0.090 s   (   22000 q/s)
   speedup vs CPU 1-thread : 199.0x
   speedup vs CPU all-core :  30.0x
-  GPU/CPU top-10 agreement : 1.0000  (expect ~1.0 — both exact)
+  GPU/CPU top-10 agreement : 1.0000  (expect ~1.0, both exact)
   OK: GPU exact search matches the CPU ground truth.
 ```
 
@@ -77,5 +77,5 @@ section and the résumé bullet.
 | `no kernel image is available` at runtime | Your GPU's compute capability differs from `sm_89`; edit the `-gencode` arch in `crates/core/build.rs` (find it via `nvidia-smi --query-gpu=compute_cap --format=csv`). |
 | CUDA out of memory | Lower `N` (the first CLI arg); the base matrix must fit in 12 GB VRAM. |
 
-If the build errors, send me the full output — the kernel is standard CUDA, so
-it's usually a toolchain/path issue we can fix quickly.
+If the build errors, send me the full output. The kernel is standard CUDA, so
+it's usually a toolchain/path issue that's quick to fix.

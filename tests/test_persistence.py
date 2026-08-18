@@ -1,5 +1,3 @@
-"""Save/load round-trip tests: a reloaded index returns identical results."""
-
 import numpy as np
 import pytest
 
@@ -14,7 +12,7 @@ def data():
 
 
 def test_flat_roundtrip(tmp_path, data):
-    idx = FlatIndex(dim=64, metric=Metric.InnerProduct)
+    idx = FlatIndex(dim=64, metric=Metric.L2)
     idx.add(data)
     before, _ = idx.search(data[5].copy(), k=10)
     path = str(tmp_path / "flat.sfidx")
@@ -22,23 +20,25 @@ def test_flat_roundtrip(tmp_path, data):
     loaded = FlatIndex.load(path)
     after, _ = loaded.search(data[5].copy(), k=10)
     assert loaded.size == idx.size
+    assert loaded.metric == Metric.L2
     assert before.tolist() == after.tolist()
 
 
 def test_hnsw_roundtrip(tmp_path, data):
-    idx = HnswIndex(dim=64, metric=Metric.InnerProduct, ef_search=64)
+    idx = HnswIndex(dim=64, metric=Metric.InnerProduct, ef_search=123)
     idx.add(data)
     before, _ = idx.search(data[5].copy(), k=10)
     path = str(tmp_path / "hnsw.sfidx")
     idx.save(path)
     loaded = HnswIndex.load(path)
     after, _ = loaded.search(data[5].copy(), k=10)
-    assert loaded.size == idx.size and loaded.ef_search == 64
+    assert loaded.size == idx.size and loaded.ef_search == 123
+    assert loaded.metric == Metric.InnerProduct
     assert before.tolist() == after.tolist()
 
 
 def test_pq_roundtrip(tmp_path, data):
-    idx = PqIndex(dim=64, metric=Metric.InnerProduct, m=8)
+    idx = PqIndex(dim=64, metric=Metric.InnerProduct, m=4)
     idx.train(data)
     idx.add(data)
     before, _ = idx.search(data[5].copy(), k=10)
@@ -46,7 +46,8 @@ def test_pq_roundtrip(tmp_path, data):
     idx.save(path)
     loaded = PqIndex.load(path)
     after, _ = loaded.search(data[5].copy(), k=10)
-    assert loaded.is_trained and loaded.size == idx.size and loaded.m == 8
+    assert loaded.is_trained and loaded.size == idx.size and loaded.m == 4
+    assert loaded.metric == Metric.InnerProduct
     assert before.tolist() == after.tolist()
 
 

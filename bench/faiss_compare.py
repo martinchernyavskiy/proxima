@@ -1,12 +1,3 @@
-"""FAISS adapters so the state-of-the-art library is measured by the exact same
-harness as Proxima. Each builder returns a small wrapper exposing the
-`search` / `search_batch` / `size` / `dim` / `memory_bytes` interface the
-harness expects.
-
-The goal is an honest "how close are we to FAISS" comparison on identical data,
-queries, and ground truth — not to hide behind it.
-"""
-
 from __future__ import annotations
 
 import os
@@ -18,7 +9,6 @@ _METRIC = {"L2": faiss.METRIC_L2, "InnerProduct": faiss.METRIC_INNER_PRODUCT}
 
 
 def _index_bytes(index) -> int:
-    """Serialized index size — a consistent, honest in-memory proxy."""
     return int(faiss.serialize_index(index).nbytes)
 
 
@@ -29,7 +19,7 @@ class FaissAdapter:
         self._n = n
         self.name = name
         self._mem = _index_bytes(index)
-        self._set_ef = set_ef  # callable(ef) for HNSW, else None
+        self._set_ef = set_ef
 
     @property
     def ef_search(self):

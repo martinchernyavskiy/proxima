@@ -1,28 +1,15 @@
-"""Proxima demo web app.
-
-A minimal FastAPI server that loads a built corpus into the engine and serves:
-  GET /                  the search UI (static HTML)
-  GET /api/search?q=&k=  JSON results + index-search latency
-  GET /api/info          corpus / engine metadata
-
-Run:
-  PROXIMA_CORPUS=data/wiki_simple \
-    .venv/bin/uvicorn demo.app:app --reload
-"""
-
 from __future__ import annotations
 
 import os
 from contextlib import asynccontextmanager
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Query
 from fastapi.responses import FileResponse, JSONResponse
 
 from proxima.search import SemanticSearch
 
 STATIC = Path(__file__).resolve().parent / "static"
-# Prefer the largest available corpus; each falls back to the next if missing.
 CORPUS_CANDIDATES = ["data/wiki_1m", "data/wiki_simple", "data/wiki_smoke"]
 
 state: dict = {}
@@ -30,21 +17,24 @@ state: dict = {}
 
 def _pick_corpus() -> str:
     env = os.environ.get("PROXIMA_CORPUS")
-    candidates = [env, *CORPUS_CANDIDATES] if env else CORPUS_CANDIDATES
-    for c in candidates:
-        if c and Path(c, "manifest.json").exists():
+    if env:
+        if Path(env, "manifest.json").exists():
+            return env
+        raise RuntimeError(
+            f"PROXIMA_CORPUS={env!r} has no manifest.json; "
+            "check the path (typo?) or build it first"
+        )
+    for c in CORPUS_CANDIDATES:
+        if Path(c, "manifest.json").exists():
             return c
     raise RuntimeError("no corpus found; run scripts/build_corpus.py first")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Load the corpus + embedding model once at startup.
     corpus = _pick_corpus()
     print(f"[proxima] loading corpus: {corpus}", flush=True)
     ss = SemanticSearch.from_corpus(corpus)
-    # Warm the index: a freshly-deserialized graph is cold in CPU cache, so the
-    # first few searches are slow. Pre-touch it so the first real query is fast.
     try:
         qv = ss.embedder.encode_one("warmup query about history science and art")
         for _ in range(8):
@@ -76,14 +66,16 @@ def info() -> JSONResponse:
 
 
 @app.get("/api/search")
-def search(q: str, k: int = 10) -> JSONResponse:
+def search(q: str, k: int = Query(10, ge=0, le=100)) -> JSONResponse:
     ss: SemanticSearch = state["search"]
-    results, latency_ms = ss.query(q, k=k)
+    results, latency_ms, trace, total_visited = ss.query_traced(q, k=k)
     return JSONResponse({
         "query": q,
         "latency_ms": round(latency_ms, 3),
         "count": ss.index.size,
         "results": [r.__dict__ for r in results],
+        "trace": [t.__dict__ for t in trace],
+        "trace_total_visited": total_visited,
     })
 
 

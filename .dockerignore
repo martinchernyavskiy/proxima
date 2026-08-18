@@ -1,4 +1,4 @@
-# Keep the build context small — everything here is regenerated in the image.
+# Keep the build context small. Everything here is regenerated in the image.
 /target
 /.venv
 /data

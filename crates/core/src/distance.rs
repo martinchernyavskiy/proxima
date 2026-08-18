@@ -1,24 +1,8 @@
-//! Distance / similarity kernels.
-//!
-//! These are tuned for auto-vectorization on *stable* Rust — no `std::simd`, no
-//! `-ffast-math`. The trick: accumulate into `LANES` independent partial sums so
-//! the floating-point dependency chain is broken and LLVM can emit packed
-//! NEON / AVX fused-multiply-adds. `chunks_exact` hands the inner loop
-//! fixed-length sub-slices, which lets the bounds checks elide. A scalar
-//! remainder loop handles dimensions not divisible by `LANES`.
-
-/// Accumulator width. 8 f32 lanes maps onto two NEON `float32x4` registers /
-/// one AVX register, and is a good default across the ISAs we target.
 const LANES: usize = 8;
 
-/// Squared Euclidean distance between two equal-length vectors.
-///
-/// The square root is intentionally omitted: it is monotonic, so ranking is
-/// identical to true L2, and we only take the root on the few results actually
-/// returned to the caller.
 #[inline]
 pub fn l2_sqr(a: &[f32], b: &[f32]) -> f32 {
-    debug_assert_eq!(a.len(), b.len());
+    assert_eq!(a.len(), b.len(), "l2_sqr: mismatched vector lengths");
     let mut acc = [0.0f32; LANES];
     let mut ai = a.chunks_exact(LANES);
     let mut bi = b.chunks_exact(LANES);
@@ -36,10 +20,9 @@ pub fn l2_sqr(a: &[f32], b: &[f32]) -> f32 {
     sum
 }
 
-/// Inner (dot) product. Equals cosine similarity for unit-normalized inputs.
 #[inline]
 pub fn inner_product(a: &[f32], b: &[f32]) -> f32 {
-    debug_assert_eq!(a.len(), b.len());
+    assert_eq!(a.len(), b.len(), "inner_product: mismatched vector lengths");
     let mut acc = [0.0f32; LANES];
     let mut ai = a.chunks_exact(LANES);
     let mut bi = b.chunks_exact(LANES);
@@ -59,7 +42,6 @@ pub fn inner_product(a: &[f32], b: &[f32]) -> f32 {
 mod tests {
     use super::*;
 
-    // Naive references computed independently of the chunked kernels.
     fn l2_naive(a: &[f32], b: &[f32]) -> f32 {
         a.iter().zip(b).map(|(x, y)| (x - y) * (x - y)).sum()
     }
@@ -69,8 +51,6 @@ mod tests {
 
     #[test]
     fn kernels_match_naive_across_lengths() {
-        // Cover lengths below, at, and straddling the LANES boundary so the
-        // remainder path is exercised.
         for len in [1usize, 3, 7, 8, 9, 16, 17, 31, 64, 100] {
             let a: Vec<f32> = (0..len).map(|i| (i as f32 * 0.37).sin()).collect();
             let b: Vec<f32> = (0..len).map(|i| (i as f32 * 0.91 + 1.0).cos()).collect();
@@ -83,5 +63,21 @@ mod tests {
     fn l2_zero_for_identical() {
         let a = [1.0f32, -2.0, 3.5, 4.0, 0.0, 9.9, 7.0, 8.0, 1.0];
         assert!(l2_sqr(&a, &a).abs() < 1e-5);
+    }
+
+    #[test]
+    #[should_panic]
+    fn l2_sqr_mismatched_lengths_panics() {
+        let a = [0.0f32; 3];
+        let b = [0.0f32; 16];
+        l2_sqr(&a, &b);
+    }
+
+    #[test]
+    #[should_panic]
+    fn inner_product_mismatched_lengths_panics() {
+        let a = [0.0f32; 3];
+        let b = [0.0f32; 16];
+        inner_product(&a, &b);
     }
 }

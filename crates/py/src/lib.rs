@@ -1,14 +1,3 @@
-//! Python bindings (PyO3 + rust-numpy) for the Proxima engine.
-//!
-//! This layer is deliberately thin: it validates shapes, hands numpy buffers to
-//! the pure-Rust core as `&[f32]`, and releases the GIL around the native
-//! search so Python threads can run concurrently. All search logic lives in
-//! `proxima-core`.
-//!
-//! PyO3's `#[pymethods]` macro expands to code that trips two clippy lints we
-//! can't fix in our own source — `useless_conversion` (its generated argument
-//! extraction) and `type_complexity` (the numpy-tuple return types are
-//! inherently nested) — so we allow both crate-wide. Both are cosmetic.
 #![allow(clippy::useless_conversion, clippy::type_complexity)]
 
 use std::borrow::Cow;
@@ -26,13 +15,6 @@ use proxima_core::{
     PqIndex as CorePq, PqParams,
 };
 
-// Row-major (C-order) f32 view of a numpy array, copying only when necessary.
-//
-// rust-numpy's `PyReadonlyArray::as_slice()` succeeds for BOTH C- and
-// Fortran-order arrays and returns the raw buffer — for an F-order array that
-// buffer is column-major, which the row-major engine would silently misread as
-// scrambled vectors. So we gate on C-contiguity and otherwise copy in logical
-// (row) order. The common case (already C-contiguous) stays zero-copy.
 fn rows_c<'a>(a: &'a PyReadonlyArray2<'_, f32>) -> Cow<'a, [f32]> {
     if a.is_c_contiguous() {
         Cow::Borrowed(a.as_slice().expect("c-contiguous"))
@@ -48,7 +30,6 @@ fn vec_c<'a>(a: &'a PyReadonlyArray1<'_, f32>) -> Cow<'a, [f32]> {
     }
 }
 
-// Same contiguity handling as `vec_c`, for boolean filter masks.
 fn mask_c<'a>(a: &'a PyReadonlyArray1<'_, bool>) -> Cow<'a, [bool]> {
     if a.is_c_contiguous() {
         Cow::Borrowed(a.as_slice().expect("c-contiguous"))
@@ -57,7 +38,14 @@ fn mask_c<'a>(a: &'a PyReadonlyArray1<'_, bool>) -> Cow<'a, [bool]> {
     }
 }
 
-/// Distance metric, mirrored from the core enum so Python never sees Rust types.
+fn check_finite(v: &[f32]) -> PyResult<()> {
+    if v.iter().all(|x| x.is_finite()) {
+        Ok(())
+    } else {
+        Err(PyValueError::new_err("query must not contain NaN or infinite values"))
+    }
+}
+
 #[pyclass(name = "Metric", eq, eq_int)]
 #[derive(Clone, Copy, PartialEq)]
 enum Metric {
@@ -74,7 +62,6 @@ impl From<Metric> for CoreMetric {
     }
 }
 
-/// Exact brute-force vector index (see `proxima_core::FlatIndex`).
 #[pyclass(name = "FlatIndex")]
 struct PyFlatIndex {
     inner: CoreFlat,
@@ -91,8 +78,7 @@ impl PyFlatIndex {
         Ok(Self { inner: CoreFlat::new(dim, metric.into()) })
     }
 
-    /// Append an `(n, dim)` float32 array of vectors.
-    fn add(&mut self, vectors: PyReadonlyArray2<f32>) -> PyResult<()> {
+    fn add(&mut self, py: Python<'_>, vectors: PyReadonlyArray2<f32>) -> PyResult<()> {
         let shape = vectors.shape();
         if shape[1] != self.inner.dim() {
             return Err(PyValueError::new_err(format!(
@@ -102,12 +88,10 @@ impl PyFlatIndex {
             )));
         }
         let data = rows_c(&vectors);
-        self.inner.add(&data);
+        py.allow_threads(|| self.inner.add(&data));
         Ok(())
     }
 
-    /// Top-`k` for a single `(dim,)` query. Returns `(ids, distances)` as two
-    /// 1-D numpy arrays of length `k`.
     #[pyo3(signature = (query, k = 10))]
     fn search<'py>(
         &self,
@@ -119,16 +103,13 @@ impl PyFlatIndex {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
         let q = vec_c(&query);
+        check_finite(&q)?;
         let mut ids = vec![0i64; k];
         let mut dists = vec![0f32; k];
-        // Release the GIL: the native scan touches no Python state.
         py.allow_threads(|| self.inner.search(&q, k, &mut ids, &mut dists));
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
-    /// Top-`k` for an `(nq, dim)` batch of queries. Returns `(ids, distances)`
-    /// as two `(nq, k)` numpy arrays. Parallelized across queries with rayon;
-    /// `num_threads = 0` uses all cores.
     #[pyo3(signature = (queries, k = 10, num_threads = 0))]
     fn search_batch<'py>(
         &self,
@@ -143,6 +124,7 @@ impl PyFlatIndex {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
         let q = rows_c(&queries);
+        check_finite(&q)?;
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
         py.allow_threads(|| {
@@ -155,9 +137,6 @@ impl PyFlatIndex {
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
-    /// Top-`k` restricted to vectors where `mask[id]` is `True`. `mask` must be
-    /// a boolean array of length `len(index)`. Exact: every vector is still
-    /// scanned, so this is real filtered search, not post-hoc reranking.
     #[pyo3(signature = (query, mask, k = 10))]
     fn search_filtered<'py>(
         &self,
@@ -175,6 +154,7 @@ impl PyFlatIndex {
             )));
         }
         let q = vec_c(&query);
+        check_finite(&q)?;
         let m = mask_c(&mask);
         let mut ids = vec![0i64; k];
         let mut dists = vec![0f32; k];
@@ -182,8 +162,6 @@ impl PyFlatIndex {
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
-    /// Batch version of `search_filtered`: the same `mask` applies to every
-    /// query in the batch.
     #[pyo3(signature = (queries, mask, k = 10, num_threads = 0))]
     fn search_batch_filtered<'py>(
         &self,
@@ -204,6 +182,7 @@ impl PyFlatIndex {
             )));
         }
         let q = rows_c(&queries);
+        check_finite(&q)?;
         let m = mask_c(&mask);
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
@@ -249,7 +228,6 @@ impl PyFlatIndex {
     }
 }
 
-/// Approximate HNSW graph index (see `proxima_core::Hnsw`).
 #[pyclass(name = "HnswIndex")]
 struct PyHnsw {
     inner: CoreHnsw,
@@ -269,17 +247,22 @@ impl PyHnsw {
         if m < 2 {
             return Err(PyValueError::new_err("m must be >= 2"));
         }
+        if ef_construction < 1 {
+            return Err(PyValueError::new_err("ef_construction must be >= 1"));
+        }
+        if ef_search < 1 {
+            return Err(PyValueError::new_err("ef_search must be >= 1"));
+        }
         let params = HnswParams { m, ef_construction, ef_search, seed };
         Ok(Self { inner: CoreHnsw::new(dim, metric.into(), params), ef_search })
     }
 
-    /// Append an `(n, dim)` float32 array, inserting each vector into the graph.
-    fn add(&mut self, vectors: PyReadonlyArray2<f32>) -> PyResult<()> {
+    fn add(&mut self, py: Python<'_>, vectors: PyReadonlyArray2<f32>) -> PyResult<()> {
         if vectors.shape()[1] != self.inner.dim() {
             return Err(PyValueError::new_err("vector dim mismatch"));
         }
         let data = rows_c(&vectors);
-        self.inner.add(&data);
+        py.allow_threads(|| self.inner.add(&data));
         Ok(())
     }
 
@@ -294,11 +277,33 @@ impl PyHnsw {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
         let q = vec_c(&query);
+        check_finite(&q)?;
         let ef = self.ef_search;
         let mut ids = vec![0i64; k];
         let mut dists = vec![0f32; k];
         py.allow_threads(|| self.inner.search(&q, k, ef, &mut ids, &mut dists));
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
+    }
+
+    #[pyo3(signature = (query, k = 10, max_trace = 40))]
+    fn search_traced(
+        &self,
+        py: Python<'_>,
+        query: PyReadonlyArray1<f32>,
+        k: usize,
+        max_trace: usize,
+    ) -> PyResult<(Vec<(i64, f32)>, Vec<(u32, i64, f32)>, usize)> {
+        if query.shape()[0] != self.inner.dim() {
+            return Err(PyValueError::new_err("query dim mismatch"));
+        }
+        let q = vec_c(&query);
+        check_finite(&q)?;
+        let ef = self.ef_search;
+        let (results, trace, total_visited) =
+            py.allow_threads(|| self.inner.search_traced(&q, k, ef, max_trace));
+        let results = results.into_iter().map(|(id, s)| (id as i64, s)).collect();
+        let trace = trace.into_iter().map(|(layer, id, s)| (layer, id as i64, s)).collect();
+        Ok((results, trace, total_visited))
     }
 
     #[pyo3(signature = (queries, k = 10, num_threads = 0))]
@@ -315,6 +320,7 @@ impl PyHnsw {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
         let q = rows_c(&queries);
+        check_finite(&q)?;
         let ef = self.ef_search;
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
@@ -326,12 +332,6 @@ impl PyHnsw {
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
-    /// Top-`k` restricted to vectors where `mask[id]` is `True`. `mask` must be
-    /// a boolean array of length `len(index)`. The graph traversal still routes
-    /// through non-matching nodes to preserve navigability — only matching
-    /// nodes are returned — so a very selective mask costs more search time
-    /// (raise `ef_search` if it under-fills `k` results), not silently wrong
-    /// results.
     #[pyo3(signature = (query, mask, k = 10))]
     fn search_filtered<'py>(
         &self,
@@ -349,6 +349,7 @@ impl PyHnsw {
             )));
         }
         let q = vec_c(&query);
+        check_finite(&q)?;
         let m = mask_c(&mask);
         let ef = self.ef_search;
         let mut ids = vec![0i64; k];
@@ -357,8 +358,6 @@ impl PyHnsw {
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
-    /// Batch version of `search_filtered`: the same `mask` applies to every
-    /// query in the batch.
     #[pyo3(signature = (queries, mask, k = 10, num_threads = 0))]
     fn search_batch_filtered<'py>(
         &self,
@@ -379,6 +378,7 @@ impl PyHnsw {
             )));
         }
         let q = rows_c(&queries);
+        check_finite(&q)?;
         let m = mask_c(&mask);
         let ef = self.ef_search;
         let mut ids = vec![0i64; nq * k];
@@ -400,6 +400,7 @@ impl PyHnsw {
     #[setter]
     fn set_ef_search(&mut self, ef: usize) {
         self.ef_search = ef;
+        self.inner.set_ef_search(ef);
     }
     #[getter]
     fn size(&self) -> usize {
@@ -434,9 +435,6 @@ impl PyHnsw {
     }
 }
 
-/// Product-quantized compressed index (see `proxima_core::PqIndex`).
-///
-/// Lifecycle: construct → `train(training)` → `add(vectors)` → `search(...)`.
 #[pyclass(name = "PqIndex")]
 struct PyPq {
     inner: Option<CorePq>,
@@ -469,10 +467,17 @@ impl PyPq {
         })
     }
 
-    /// Learn the codebooks from an `(n, dim)` training set.
     fn train(&mut self, py: Python<'_>, training: PyReadonlyArray2<f32>) -> PyResult<()> {
         if training.shape()[1] != self.dim {
             return Err(PyValueError::new_err("training dim mismatch"));
+        }
+        let k = 1usize << self.params.nbits;
+        if training.shape()[0] < k {
+            return Err(PyValueError::new_err(format!(
+                "training set too small: need at least {k} rows for nbits={}, got {}",
+                self.params.nbits,
+                training.shape()[0]
+            )));
         }
         let training_data = rows_c(&training);
         let (dim, metric, params) = (self.dim, self.metric, self.params);
@@ -481,7 +486,6 @@ impl PyPq {
         Ok(())
     }
 
-    /// Encode and append an `(n, dim)` array. Requires `train` first.
     fn add(&mut self, py: Python<'_>, vectors: PyReadonlyArray2<f32>) -> PyResult<()> {
         if vectors.shape()[1] != self.dim {
             return Err(PyValueError::new_err("vector dim mismatch"));
@@ -510,6 +514,7 @@ impl PyPq {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
         let q = vec_c(&query);
+        check_finite(&q)?;
         let mut ids = vec![0i64; k];
         let mut dists = vec![0f32; k];
         py.allow_threads(|| inner.search(&q, k, &mut ids, &mut dists));
@@ -534,6 +539,7 @@ impl PyPq {
             return Err(PyValueError::new_err("query dim mismatch"));
         }
         let q = rows_c(&queries);
+        check_finite(&q)?;
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
         py.allow_threads(|| inner.search_batch(&q, k, &mut ids, &mut dists, num_threads));
@@ -544,8 +550,6 @@ impl PyPq {
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
-    /// Top-`k` restricted to vectors where `mask[id]` is `True`. `mask` must be
-    /// a boolean array of length `len(index)`. Requires `train()` first.
     #[pyo3(signature = (query, mask, k = 10))]
     fn search_filtered<'py>(
         &self,
@@ -567,6 +571,7 @@ impl PyPq {
             )));
         }
         let q = vec_c(&query);
+        check_finite(&q)?;
         let m = mask_c(&mask);
         let mut ids = vec![0i64; k];
         let mut dists = vec![0f32; k];
@@ -574,8 +579,6 @@ impl PyPq {
         Ok((ids.into_pyarray_bound(py), dists.into_pyarray_bound(py)))
     }
 
-    /// Batch version of `search_filtered`: the same `mask` applies to every
-    /// query in the batch.
     #[pyo3(signature = (queries, mask, k = 10, num_threads = 0))]
     fn search_batch_filtered<'py>(
         &self,
@@ -600,6 +603,7 @@ impl PyPq {
             )));
         }
         let q = rows_c(&queries);
+        check_finite(&q)?;
         let m = mask_c(&mask);
         let mut ids = vec![0i64; nq * k];
         let mut dists = vec![0f32; nq * k];
@@ -644,7 +648,6 @@ impl PyPq {
     fn raw_bytes(&self) -> usize {
         self.inner.as_ref().map_or(0, |x| x.raw_bytes())
     }
-    /// Raw float32 bytes / compressed bytes.
     #[getter]
     fn compression_ratio(&self) -> f64 {
         match &self.inner {
@@ -662,12 +665,12 @@ impl PyPq {
     #[staticmethod]
     fn load(path: PathBuf) -> PyResult<Self> {
         let inner = CorePq::load(&path).map_err(|e| PyIOError::new_err(e.to_string()))?;
-        let (dim, metric, m) = (inner.dim(), inner.metric(), inner.m());
+        let (dim, metric, m, nbits) = (inner.dim(), inner.metric(), inner.m(), inner.nbits());
         Ok(Self {
             inner: Some(inner),
             dim,
             metric,
-            params: PqParams { m, nbits: 8, train_iters: 25, train_sample: 50_000, seed: 24301 },
+            params: PqParams { m, nbits, train_iters: 25, train_sample: 50_000, seed: 24301 },
         })
     }
     fn __len__(&self) -> usize {
@@ -675,7 +678,6 @@ impl PyPq {
     }
 }
 
-/// The native module, imported as `proxima._core`.
 #[pymodule]
 fn _core(m: &Bound<'_, PyModule>) -> PyResult<()> {
     m.add_class::<Metric>()?;

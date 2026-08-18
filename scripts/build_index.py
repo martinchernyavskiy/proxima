@@ -1,13 +1,3 @@
-#!/usr/bin/env python3
-"""Build and persist an ANN index from a corpus's embedding matrix.
-
-    python scripts/build_index.py --corpus data/wiki_1m --type hnsw
-
-Writes `<corpus>/<type>.sfidx`. The demo auto-loads `hnsw.sfidx` if present, so
-a million-vector corpus serves sub-millisecond queries without rebuilding the
-graph (which takes minutes) on every startup.
-"""
-
 from __future__ import annotations
 
 import argparse
@@ -21,9 +11,6 @@ from proxima import FlatIndex, HnswIndex, Metric, PqIndex
 
 
 def _add_chunked(idx, vectors, chunk: int = 50_000) -> None:
-    """Insert a (possibly memory-mapped) matrix in chunks. This keeps peak RAM
-    low: only a `chunk`-sized contiguous copy is resident at a time instead of a
-    second full copy of the whole matrix alongside the growing index."""
     n = len(vectors)
     t0 = time.perf_counter()
     for start in range(0, n, chunk):
@@ -49,7 +36,6 @@ def main() -> None:
     corpus = Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
     metric = getattr(Metric, manifest.get("metric", "InnerProduct"))
-    # Memory-map the matrix so the full 1.5 GB+ is never all resident at once.
     vectors = np.load(corpus / "vectors.npy", mmap_mode="r")
     n, dim = vectors.shape
     out = corpus / f"{args.type}.sfidx"
@@ -64,7 +50,7 @@ def main() -> None:
     elif args.type == "flat":
         idx = FlatIndex(dim=dim, metric=metric)
         _add_chunked(idx, vectors, args.chunk)
-    else:  # pq
+    else:
         idx = PqIndex(dim=dim, metric=metric, m=args.pq_m)
         rng = np.random.default_rng(0)
         sample_idx = np.sort(rng.choice(n, size=min(100_000, n), replace=False))

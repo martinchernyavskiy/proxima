@@ -33,14 +33,14 @@ free, 16 GB RAM, no credit card, and purpose-built for this.
 5. HF builds the image (first build ~10–20 min: it compiles Rust, installs Torch, and embeds 30k articles) and serves at `https://huggingface.co/spaces/<your-username>/proxima`. That URL is what you put on your résumé.
 
 **Notes**
-- The corpus is baked at build time, so restarts are fast. To change its size or source, edit the `build_corpus.py` line in the `Dockerfile` (e.g. `--limit 100000`, or `--config 20231101.en` for full English Wikipedia — larger images/RAM).
+- The corpus is baked at build time, so restarts are fast. To change its size or source, edit the `build_corpus.py` line in the `Dockerfile` (e.g. `--limit 100000`, or `--config 20231101.en` for full English Wikipedia, which needs a larger image and more RAM).
 - Query latency on free CPU is dominated by embedding the query (~20 ms); the index search itself stays ~1 ms and is what the UI reports.
 - To iterate on the build without pushing each time, build locally: `docker build -t proxima . && docker run -p 7860:7860 proxima`, then open <http://localhost:7860>.
 
 ## Other hosts
 
-The same `Dockerfile` works on any container platform — **Render**, **Fly.io**,
-**Railway**, or a VPS. Point the platform at the Dockerfile and expose port
-`7860` (or set `--port $PORT` in the start command for platforms that inject a
-`PORT` env var). These generally need a credit card on file even for free tiers,
-which is why Spaces is the recommended default.
+The same `Dockerfile` works on any container platform, including **Render**,
+**Fly.io**, **Railway**, or a VPS. Point the platform at the Dockerfile and
+expose port `7860` (or set `--port $PORT` in the start command for platforms
+that inject a `PORT` env var). These generally need a credit card on file even
+for free tiers, which is why Spaces is the recommended default.

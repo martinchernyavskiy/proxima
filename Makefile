@@ -1,5 +1,3 @@
-# Proxima — common tasks. Assumes a Python venv at .venv and a Rust
-# toolchain (cargo) on PATH.
 VENV ?= .venv
 PY   := $(VENV)/bin/python
 

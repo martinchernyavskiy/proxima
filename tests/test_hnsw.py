@@ -1,7 +1,3 @@
-"""Tests for the HNSW approximate index: recall against the exact baseline,
-the ef_search recall/latency dial, and interface parity with FlatIndex.
-"""
-
 import numpy as np
 import pytest
 
@@ -55,7 +51,7 @@ def test_ef_search_improves_recall(data, queries):
     low, _ = hnsw.search_batch(queries, k=10)
     hnsw.ef_search = 200
     high, _ = hnsw.search_batch(queries, k=10)
-    assert _recall(high, gt, 10) >= _recall(low, gt, 10)
+    assert _recall(high, gt, 10) > _recall(low, gt, 10)
     assert _recall(high, gt, 10) > 0.95
 
 
@@ -81,8 +77,48 @@ def test_interface_parity_and_metadata(data):
     assert hnsw.memory_bytes > 0
 
 
+def test_search_traced_matches_search(data, queries):
+    hnsw = HnswIndex(dim=48, metric=Metric.InnerProduct, ef_search=64)
+    hnsw.add(data)
+
+    q = queries[0]
+    k = 10
+    ids, dists = hnsw.search(q, k=k)
+    id_scores, trace, total_visited = hnsw.search_traced(q, k=k, max_trace=1)
+    expected_ids = [int(x) for x in ids if x >= 0]
+
+    assert [i for i, _ in id_scores] == expected_ids
+    for (_, score), d in zip(id_scores, dists):
+        assert score == pytest.approx(float(d), rel=1e-4)
+
+    assert len(trace) > 0
+    for layer, node_id, score in trace:
+        assert 0 <= node_id < hnsw.size
+        assert np.isfinite(score)
+    assert total_visited >= 1
+
+
+def test_search_traced_max_trace_caps_recording_not_the_true_count(data, queries):
+    hnsw = HnswIndex(dim=48, metric=Metric.InnerProduct, ef_search=64)
+    hnsw.add(data)
+    q = queries[0]
+    k = 10
+
+    _, tight_trace, tight_visited = hnsw.search_traced(q, k=k, max_trace=1)
+    _, loose_trace, loose_visited = hnsw.search_traced(q, k=k, max_trace=100_000)
+
+    tight_layer0 = [t for t in tight_trace if t[0] == 0]
+    loose_layer0 = [t for t in loose_trace if t[0] == 0]
+
+    assert tight_visited == loose_visited
+    assert tight_visited > 1, "fixture too small to exercise the cap meaningfully"
+
+    assert len(tight_layer0) == 1
+    assert len(loose_layer0) == tight_visited
+
+
 def test_validation():
     with pytest.raises(Exception):
         HnswIndex(dim=0)
     with pytest.raises(Exception):
-        HnswIndex(dim=8, m=1)  # m must be >= 2
+        HnswIndex(dim=8, m=1)

@@ -1,12 +1,3 @@
-//! Exact ("flat") brute-force nearest-neighbor index.
-//!
-//! This is Proxima's ground truth: it scans every stored vector for each
-//! query, so its results are exact by construction. The approximate HNSW index
-//! is measured for recall against it, and the future GPU path accelerates
-//! exactly this computation. Vectors are stored contiguously row-major for
-//! cache-friendly streaming, and batch search is parallelized across queries
-//! with rayon.
-
 use std::cmp::Ordering;
 use std::collections::BinaryHeap;
 use std::path::Path;
@@ -17,10 +8,6 @@ use serde::{Deserialize, Serialize};
 use crate::distance::{inner_product, l2_sqr};
 use crate::metric::Metric;
 
-/// One entry in the bounded top-k heap. `key` is normalized so that *smaller is
-/// more relevant* for both metrics (L2 → squared distance, InnerProduct →
-/// negated dot product), which lets a single max-heap serve both: its root is
-/// always the worst of the current best-k and is the entry we evict.
 #[derive(Clone, Copy)]
 struct Cand {
     key: f32,
@@ -39,24 +26,20 @@ impl PartialOrd for Cand {
     }
 }
 impl Ord for Cand {
-    // total_cmp gives a deterministic total order even with NaN, so the heap is
-    // always well-formed.
     fn cmp(&self, other: &Self) -> Ordering {
         self.key.total_cmp(&other.key)
     }
 }
 
-/// Exact brute-force vector index.
 #[derive(Serialize, Deserialize)]
 pub struct FlatIndex {
     dim: usize,
     metric: Metric,
     n: usize,
-    data: Vec<f32>, // n * dim, row-major
+    data: Vec<f32>,
 }
 
 impl FlatIndex {
-    /// Create an empty index for `dim`-dimensional vectors.
     pub fn new(dim: usize, metric: Metric) -> Self {
         assert!(dim > 0, "dim must be > 0");
         FlatIndex { dim, metric, n: 0, data: Vec::new() }
@@ -74,23 +57,18 @@ impl FlatIndex {
     pub fn metric(&self) -> Metric {
         self.metric
     }
-    /// Bytes held by the raw vector store (excludes container overhead).
     pub fn memory_bytes(&self) -> usize {
         self.data.len() * std::mem::size_of::<f32>()
     }
 
-    /// Persist the index to `path` (bincode).
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
         crate::save_to(self, path)
     }
 
-    /// Load an index previously written by [`FlatIndex::save`].
     pub fn load(path: &Path) -> std::io::Result<Self> {
         crate::load_from(path)
     }
 
-    /// Append row-major vectors. `vectors.len()` must be a multiple of `dim`.
-    /// IDs are assigned sequentially in insertion order.
     pub fn add(&mut self, vectors: &[f32]) {
         assert!(
             vectors.len().is_multiple_of(self.dim),
@@ -102,9 +80,6 @@ impl FlatIndex {
         self.n += vectors.len() / self.dim;
     }
 
-    /// Top-`k` for a single query. `out_ids` and `out_dists` must each hold `k`
-    /// slots; results are written best-first. If the index holds fewer than `k`
-    /// vectors, trailing slots are padded with id `-1`.
     pub fn search(&self, query: &[f32], k: usize, out_ids: &mut [i64], out_dists: &mut [f32]) {
         assert_eq!(query.len(), self.dim, "query dim mismatch");
         match self.metric {
@@ -113,10 +88,6 @@ impl FlatIndex {
         }
     }
 
-    /// Top-`k` restricted to vectors where `filter[id]` is `true`. `filter` must
-    /// have one entry per stored vector (`filter.len() == self.len()`). Exact:
-    /// every vector is still scanned, so this is a real filtered nearest-
-    /// neighbor search, not a post-hoc reranking of an unfiltered top-k.
     pub fn search_filtered(&self, query: &[f32], k: usize, filter: &[bool], out_ids: &mut [i64],
                            out_dists: &mut [f32]) {
         assert_eq!(query.len(), self.dim, "query dim mismatch");
@@ -128,8 +99,6 @@ impl FlatIndex {
         }
     }
 
-    // Monomorphized per metric (the const bool is resolved at compile time, so
-    // the inner branch and distance call inline with no runtime dispatch).
     fn scan<const L2: bool>(
         &self,
         query: &[f32],
@@ -141,6 +110,12 @@ impl FlatIndex {
         if k == 0 {
             return;
         }
+        assert_eq!(out_ids.len(), k, "out_ids length {} must equal k ({k})", out_ids.len());
+        assert_eq!(out_dists.len(), k, "out_dists length {} must equal k ({k})", out_dists.len());
+        assert!(
+            query.iter().all(|x| x.is_finite()),
+            "query must not contain NaN or infinite values"
+        );
         let mut heap: BinaryHeap<Cand> = BinaryHeap::with_capacity(k + 1);
         for (i, v) in self.data.chunks_exact(self.dim).enumerate() {
             if let Some(f) = filter {
@@ -151,31 +126,23 @@ impl FlatIndex {
             let key = if L2 { l2_sqr(query, v) } else { -inner_product(query, v) };
             if heap.len() < k {
                 heap.push(Cand { key, id: i as i64 });
-            } else if key < heap.peek().unwrap().key {
-                // Better than the current worst-of-best: evict and insert.
+            } else if key.total_cmp(&heap.peek().unwrap().key).is_lt() {
                 heap.pop();
                 heap.push(Cand { key, id: i as i64 });
             }
         }
 
-        // into_sorted_vec yields ascending order by `key`, i.e. best-first.
         let sorted = heap.into_sorted_vec();
         for (j, c) in sorted.iter().enumerate() {
             out_ids[j] = c.id;
             out_dists[j] = if L2 { c.key.sqrt() } else { -c.key };
         }
-        // Pad with finite sentinels (id = -1) when fewer than k results exist.
         for j in sorted.len()..k {
             out_ids[j] = -1;
             out_dists[j] = if L2 { f32::MAX } else { f32::MIN };
         }
     }
 
-    /// Top-`k` for a batch of `nq` queries (row-major, `nq * dim`). Outputs are
-    /// `nq * k`, row-major. Queries are independent and uniform-cost, so this
-    /// scales near-linearly across cores. `num_threads == 0` uses rayon's global
-    /// pool; a positive value runs on a local pool of that size (useful for
-    /// measuring single- vs multi-threaded speedup).
     pub fn search_batch(
         &self,
         queries: &[f32],
@@ -188,6 +155,17 @@ impl FlatIndex {
             return;
         }
         let dim = self.dim;
+        assert!(
+            queries.len().is_multiple_of(dim),
+            "queries length {} is not a multiple of dim {}",
+            queries.len(),
+            dim
+        );
+        let nq = queries.len() / dim;
+        assert_eq!(out_ids.len(), nq * k,
+                   "out_ids length {} must equal nq * k ({nq} * {k})", out_ids.len());
+        assert_eq!(out_dists.len(), nq * k,
+                   "out_dists length {} must equal nq * k ({nq} * {k})", out_dists.len());
         let mut run = || {
             out_ids
                 .par_chunks_mut(k)
@@ -208,9 +186,6 @@ impl FlatIndex {
         }
     }
 
-    /// Batch version of [`FlatIndex::search_filtered`]: the same `filter` is
-    /// applied to every query in the batch (the common case — e.g. "search
-    /// within category X" for many queries at once).
     pub fn search_batch_filtered(&self, queries: &[f32], k: usize, filter: &[bool],
                                  out_ids: &mut [i64], out_dists: &mut [f32], num_threads: usize) {
         assert_eq!(filter.len(), self.n, "filter length {} must equal index size {}",
@@ -219,6 +194,17 @@ impl FlatIndex {
             return;
         }
         let dim = self.dim;
+        assert!(
+            queries.len().is_multiple_of(dim),
+            "queries length {} is not a multiple of dim {}",
+            queries.len(),
+            dim
+        );
+        let nq = queries.len() / dim;
+        assert_eq!(out_ids.len(), nq * k,
+                   "out_ids length {} must equal nq * k ({nq} * {k})", out_ids.len());
+        assert_eq!(out_dists.len(), nq * k,
+                   "out_dists length {} must equal nq * k ({nq} * {k})", out_dists.len());
         let mut run = || {
             out_ids
                 .par_chunks_mut(k)
@@ -245,8 +231,6 @@ mod tests {
     use super::*;
     use crate::distance::l2_sqr;
 
-    // Deterministic pseudo-random data via a splitmix64-style generator, so
-    // tests are reproducible without an RNG dependency.
     fn gen(n: usize, dim: usize, seed: u64) -> Vec<f32> {
         let mut s = seed;
         (0..n * dim)
@@ -256,7 +240,6 @@ mod tests {
                 z = (z ^ (z >> 30)).wrapping_mul(0xBF58476D1CE4E5B9);
                 z = (z ^ (z >> 27)).wrapping_mul(0x94D049BB133111EB);
                 z ^= z >> 31;
-                // map to roughly [-1, 1)
                 (z as f32 / u64::MAX as f32) * 2.0 - 1.0
             })
             .collect()
@@ -294,7 +277,6 @@ mod tests {
         for j in 1..k {
             assert!(dists[j] >= dists[j - 1] - 1e-4, "ascending L2");
         }
-        // Independent reference for the nearest distance.
         let mut best = f32::MAX;
         for i in 0..n {
             let d = l2_sqr(&q, &data[i * dim..(i + 1) * dim]).sqrt();
@@ -322,6 +304,12 @@ mod tests {
             let mut sd = vec![0f32; k];
             idx.search(&queries[qi * dim..(qi + 1) * dim], k, &mut sids, &mut sd);
             assert_eq!(&bids[qi * k..(qi + 1) * k], &sids[..], "batch == single (ids)");
+            for j in 0..k {
+                assert!(
+                    (bd[qi * k + j] - sd[j]).abs() < 1e-4,
+                    "batch == single (dists) at query {qi}, rank {j}"
+                );
+            }
             for j in 1..k {
                 assert!(sd[j] <= sd[j - 1] + 1e-4, "descending IP similarity");
             }
@@ -332,12 +320,17 @@ mod tests {
     fn padding_when_fewer_than_k() {
         let dim = 4;
         let mut idx = FlatIndex::new(dim, Metric::L2);
-        idx.add(&[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]); // 2 vectors
+        idx.add(&[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0]);
         let mut ids = vec![0i64; 5];
         let mut dists = vec![0f32; 5];
         idx.search(&[0.0, 0.0, 0.0, 0.0], 5, &mut ids, &mut dists);
         assert_eq!(ids[0], 0);
+        assert!((dists[0] - 0.0).abs() < 1e-4);
+        assert_eq!(ids[1], 1, "second real result must be the last non-padded slot");
+        assert!((dists[1] - 2.0).abs() < 1e-4, "second real result's distance");
         assert_eq!(&ids[2..], &[-1, -1, -1], "trailing ids padded with -1");
+        assert_eq!(&dists[2..], &[f32::MAX, f32::MAX, f32::MAX],
+                   "trailing dists padded with f32::MAX for L2");
     }
 
     #[test]
@@ -348,7 +341,6 @@ mod tests {
         let mut idx = FlatIndex::new(dim, Metric::InnerProduct);
         idx.add(&data);
 
-        // Filter: keep only even ids.
         let filter: Vec<bool> = (0..n).map(|i| i % 2 == 0).collect();
         let mut ids = vec![0i64; k];
         let mut dists = vec![0f32; k];
@@ -361,7 +353,6 @@ mod tests {
             assert!(dists[j] <= dists[j - 1] + 1e-4, "descending IP similarity");
         }
 
-        // Independent reference: brute-force over only the even-id subset.
         let mut scored: Vec<(i64, f32)> = (0..n)
             .filter(|i| i % 2 == 0)
             .map(|i| (i as i64, inner_product(&q, &data[i * dim..(i + 1) * dim])))
@@ -376,13 +367,15 @@ mod tests {
     fn filtered_search_pads_when_fewer_matches_than_k() {
         let dim = 4;
         let mut idx = FlatIndex::new(dim, Metric::L2);
-        idx.add(&[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0]); // 3 vectors
-        let filter = [true, false, false]; // only id 0 passes
+        idx.add(&[0.0, 0.0, 0.0, 0.0, 1.0, 1.0, 1.0, 1.0, 2.0, 2.0, 2.0, 2.0]);
+        let filter = [true, false, false];
         let mut ids = vec![0i64; 5];
         let mut dists = vec![0f32; 5];
         idx.search_filtered(&[0.0, 0.0, 0.0, 0.0], 5, &filter, &mut ids, &mut dists);
         assert_eq!(ids[0], 0);
         assert_eq!(&ids[1..], &[-1, -1, -1, -1], "only one match exists; rest padded");
+        assert_eq!(&dists[1..], &[f32::MAX, f32::MAX, f32::MAX, f32::MAX],
+                   "only one match exists; rest padded with f32::MAX for L2");
     }
 
     #[test]
@@ -391,9 +384,20 @@ mod tests {
         let dim = 4;
         let mut idx = FlatIndex::new(dim, Metric::L2);
         idx.add(&[0.0, 0.0, 0.0, 0.0]);
-        let bad_filter = [true, true]; // wrong length (index has 1 vector)
+        let bad_filter = [true, true];
         let mut ids = vec![0i64; 1];
         let mut dists = vec![0f32; 1];
         idx.search_filtered(&[0.0, 0.0, 0.0, 0.0], 1, &bad_filter, &mut ids, &mut dists);
+    }
+
+    #[test]
+    #[should_panic(expected = "must equal k")]
+    fn search_rejects_mismatched_output_length() {
+        let dim = 4;
+        let mut idx = FlatIndex::new(dim, Metric::L2);
+        idx.add(&gen(50, dim, 1));
+        let mut ids = vec![0i64; 3];
+        let mut dists = vec![0f32; 5];
+        idx.search(&[0.0, 0.0, 0.0, 0.0], 5, &mut ids, &mut dists);
     }
 }

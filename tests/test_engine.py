@@ -1,9 +1,3 @@
-"""End-to-end tests of the Python-facing engine (the PyO3 bindings + Rust core).
-
-These complement the pure-Rust unit tests in `crates/core`: here we verify the
-numpy interop and that results agree with a numpy brute-force reference.
-"""
-
 import numpy as np
 import pytest
 
@@ -29,7 +23,6 @@ def test_inner_product_matches_numpy(data):
     ids, sims = idx.search(q, k=10)
     ref = np.argsort(-(data @ q))[:10]
     assert set(ids.tolist()) == set(ref.tolist())
-    # Returned similarities equal the actual dot products.
     for i, s in zip(ids.tolist(), sims.tolist()):
         assert abs(s - float(data[i] @ q)) < 1e-4
 
@@ -44,7 +37,7 @@ def test_l2_matches_numpy(data):
     d_all = np.linalg.norm(data - q, axis=1)
     ref = np.argsort(d_all)[:10]
     assert set(ids.tolist()) == set(ref.tolist())
-    assert np.all(np.diff(dists) >= -1e-4)  # ascending
+    assert np.all(np.diff(dists) >= -1e-4)
     assert abs(dists[0] - d_all[ref[0]]) < 1e-3
 
 
@@ -71,9 +64,10 @@ def test_batch_equals_single(data):
 
 def test_padding_when_fewer_than_k():
     idx = FlatIndex(dim=4, metric=Metric.L2)
-    idx.add(np.eye(3, 4, dtype=np.float32))  # 3 vectors
+    idx.add(np.eye(3, 4, dtype=np.float32))
     ids, _ = idx.search(np.zeros(4, dtype=np.float32), k=5)
     assert (ids[3:] == -1).all()
+    assert sorted(ids[:3].tolist()) == [0, 1, 2]
 
 
 def test_incremental_add(data):
@@ -97,22 +91,18 @@ def test_metric_and_metadata():
     assert idx.metric == Metric.L2
     assert idx.dim == 16
     idx.add(np.zeros((4, 16), dtype=np.float32))
-    assert idx.memory_bytes == 4 * 16 * 4  # float32
+    assert idx.memory_bytes == 4 * 16 * 4
 
 
 def test_non_contiguous_input_not_corrupted(data):
-    # Regression: Fortran-order / strided arrays must not be read as row-major
-    # (that silently scrambled every vector). Each stored vector must remain its
-    # own nearest neighbor, and non-contiguous queries must work too.
     for metric in (Metric.InnerProduct, Metric.L2):
         for cls in (FlatIndex, HnswIndex):
             idx = cls(dim=64, metric=metric)
-            idx.add(np.asfortranarray(data))  # non-C-contiguous
+            idx.add(np.asfortranarray(data))
             for i in (0, 123, 2999):
                 q = np.ascontiguousarray(data[i])
                 ids, _ = idx.search(q, k=1)
                 assert ids[0] == i, (cls.__name__, metric, i)
-    # non-contiguous (strided) query
     idx = FlatIndex(dim=64, metric=Metric.L2)
     idx.add(data)
     strided = np.zeros(128, dtype=np.float32)[::2]
