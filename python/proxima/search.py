@@ -6,10 +6,10 @@ from pathlib import Path
 
 import numpy as np
 
-from ._core import FlatIndex, HnswIndex, Metric
+from ._core import FlatIndex, HnswIndex
 from .corpus import trim_snippet
 from .embeddings import DEFAULT_MODEL, TextEmbedder
-from .store import load_corpus, load_metadata
+from .store import load_corpus, load_metadata, resolve_metric
 
 
 @dataclass
@@ -54,7 +54,7 @@ class SemanticSearch:
             index_kind = f"HNSW (approximate, ef_search={index.ef_search})"
         else:
             vectors, docs, manifest = load_corpus(data_dir)
-            metric = getattr(Metric, manifest.get("metric", "InnerProduct"))
+            metric = resolve_metric(manifest.get("metric", "InnerProduct"))
             index = FlatIndex(dim=vectors.shape[1], metric=metric)
             index.add(vectors)
             index_kind = "FlatIndex (exact)"

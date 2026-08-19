@@ -207,6 +207,10 @@ impl Hnsw {
 
     pub fn add(&mut self, vectors: &[f32]) {
         assert!(vectors.len().is_multiple_of(self.dim), "vectors length not a multiple of dim");
+        assert!(
+            vectors.iter().all(|x| x.is_finite()),
+            "vectors must not contain NaN or infinite values"
+        );
         let count = vectors.len() / self.dim;
         if count == 0 {
             return;
@@ -261,15 +265,15 @@ impl Hnsw {
         };
 
         for lc in (level + 1..=max_level).rev() {
-            cur = self.greedy_descend(&graph, v, cur, lc);
+            cur = self.greedy_descend(&graph, v, cur, lc, Some(id));
         }
 
         let live_max_level = entry.lock().unwrap().max_level;
         let mut entry_points = vec![cur];
         let top = level.min(live_max_level);
         for lc in (0..=top).rev() {
-            let candidates =
-                self.search_layer(&graph, v, &entry_points, self.params.ef_construction, lc, None);
+            let candidates = self.search_layer(&graph, v, &entry_points, self.params.ef_construction,
+                                               lc, None, Some(id));
             let cap = if lc == 0 { self.m_max0 } else { self.m_max };
             let selected = self.select_neighbors(&candidates, cap);
             for &nb in &selected {
@@ -305,12 +309,16 @@ impl Hnsw {
         }
     }
 
-    fn greedy_descend<G: Graph>(&self, g: &G, q: &[f32], entry: u32, layer: usize) -> u32 {
+    fn greedy_descend<G: Graph>(&self, g: &G, q: &[f32], entry: u32, layer: usize,
+                               exclude: Option<u32>) -> u32 {
         let mut best = entry;
         let mut best_d = self.key(q, self.vec_at(entry));
         loop {
             let mut improved = false;
             g.for_each(best, layer, |nb| {
+                if Some(nb) == exclude {
+                    return;
+                }
                 let d = self.key(q, self.vec_at(nb));
                 if d < best_d {
                     best_d = d;
@@ -324,8 +332,9 @@ impl Hnsw {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     fn search_layer<G: Graph>(&self, g: &G, q: &[f32], entry: &[u32], ef: usize, layer: usize,
-                              filter: Option<&[bool]>) -> Vec<Neighbor> {
+                              filter: Option<&[bool]>, exclude: Option<u32>) -> Vec<Neighbor> {
         let mut visited: VisitedSet =
             HashSet::with_capacity_and_hasher(ef * 4, BuildHasherDefault::default());
         let mut candidates: BinaryHeap<std::cmp::Reverse<Neighbor>> = BinaryHeap::new();
@@ -334,9 +343,10 @@ impl Hnsw {
             Some(f) => f[id as usize],
             None => true,
         };
+        let admissible = |id: u32| Some(id) != exclude;
 
         for &e in entry {
-            if visited.insert(e) {
+            if admissible(e) && visited.insert(e) {
                 let d = self.key(q, self.vec_at(e));
                 candidates.push(std::cmp::Reverse(Neighbor { dist: d, id: e }));
                 if passes(e) {
@@ -354,7 +364,7 @@ impl Hnsw {
                 break;
             }
             g.for_each(c.id, layer, |nb| {
-                if visited.insert(nb) {
+                if admissible(nb) && visited.insert(nb) {
                     let d = self.key(q, self.vec_at(nb));
                     let worst = w.peek().map(|n| n.dist).unwrap_or(f32::MAX);
                     if d < worst || w.len() < ef {
@@ -466,6 +476,8 @@ impl Hnsw {
         if k == 0 {
             return;
         }
+        assert_eq!(out_ids.len(), k, "out_ids length {} must equal k ({k})", out_ids.len());
+        assert_eq!(out_dists.len(), k, "out_dists length {} must equal k ({k})", out_dists.len());
         let pad = |out_ids: &mut [i64], out_dists: &mut [f32], from: usize| {
             for j in from..k {
                 out_ids[j] = -1;
@@ -483,10 +495,10 @@ impl Hnsw {
         let graph = Plain(&self.links);
         let mut cur = ep;
         for lc in (1..=self.max_level).rev() {
-            cur = self.greedy_descend(&graph, query, cur, lc);
+            cur = self.greedy_descend(&graph, query, cur, lc, None);
         }
         let ef = ef.max(k);
-        let mut w = self.search_layer(&graph, query, &[cur], ef, 0, filter);
+        let mut w = self.search_layer(&graph, query, &[cur], ef, 0, filter, None);
         w.sort_unstable();
 
         let take = k.min(w.len());
@@ -516,7 +528,7 @@ impl Hnsw {
         let mut trace: Vec<(u32, u32, f32)> = Vec::new();
         let mut cur = ep;
         for lc in (1..=self.max_level).rev() {
-            cur = self.greedy_descend(&graph, query, cur, lc);
+            cur = self.greedy_descend(&graph, query, cur, lc, None);
             let d = self.key(query, self.vec_at(cur));
             trace.push((lc as u32, cur, self.to_natural(d)));
         }
@@ -825,5 +837,39 @@ mod tests {
         let mut ids = vec![0i64; k];
         let mut d = vec![0f32; k];
         h.search_batch(&queries, k, 16, &mut ids, &mut d, 0);
+    }
+
+    #[test]
+    #[should_panic(expected = "must equal k")]
+    fn search_rejects_mismatched_output_length() {
+        let (n, dim) = (100usize, 8usize);
+        let mut h = Hnsw::new(dim, Metric::L2, HnswParams::default());
+        h.add(&gen(n, dim, 1));
+        let mut ids = vec![0i64; 3];
+        let mut d = vec![0f32; 5];
+        h.search(&gen(1, dim, 2), 5, 16, &mut ids, &mut d);
+    }
+
+    #[test]
+    #[should_panic(expected = "must not contain NaN or infinite values")]
+    fn add_rejects_non_finite_vectors() {
+        let mut h = Hnsw::new(4, Metric::L2, HnswParams::default());
+        h.add(&[0.0, f32::NAN, 0.0, 0.0]);
+    }
+
+    #[test]
+    fn no_self_loops_after_parallel_build() {
+        for seed in 1..=5u64 {
+            let (n, dim) = (20000usize, 16usize);
+            let data = gen(n, dim, seed);
+            let mut h = Hnsw::new(dim, Metric::L2, HnswParams { m: 8, ef_construction: 100, ..Default::default() });
+            h.add(&data);
+            for (id, layers) in h.links.iter().enumerate() {
+                for (layer, nbrs) in layers.iter().enumerate() {
+                    assert!(!nbrs.contains(&(id as u32)),
+                        "node {id} contains itself as a neighbor on layer {layer} (seed {seed})");
+                }
+            }
+        }
     }
 }

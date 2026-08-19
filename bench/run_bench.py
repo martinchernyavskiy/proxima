@@ -43,13 +43,17 @@ def main() -> None:
     p.add_argument("--json", type=str, default=None, help="also write results JSON")
     args = p.parse_args()
 
-    base, metric_name = load_base(args)
+    all_vectors, metric_name = load_base(args)
     metric = getattr(Metric, metric_name)
     rng = np.random.default_rng(args.seed + 1)
-    qi = rng.choice(len(base), size=min(args.nq, len(base)), replace=False)
-    queries = np.ascontiguousarray(base[qi])
+    nq = min(args.nq, len(all_vectors) - 1)
+    qi = rng.choice(len(all_vectors), size=nq, replace=False)
+    held_out = np.zeros(len(all_vectors), dtype=bool)
+    held_out[qi] = True
+    queries = np.ascontiguousarray(all_vectors[qi])
+    base = np.ascontiguousarray(all_vectors[~held_out])
 
-    print(f"base={len(base):,}  dim={base.shape[1]}  queries={len(queries):,}  "
+    print(f"base={len(base):,}  dim={base.shape[1]}  queries={len(queries):,} (held out, not indexed)  "
           f"k={args.k}  metric={metric_name}")
     print("computing exact ground truth ...", flush=True)
     gt = exact_ground_truth(base, queries, args.k, metric)

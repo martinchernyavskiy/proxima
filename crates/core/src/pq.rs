@@ -266,6 +266,10 @@ impl PqIndex {
     pub fn add(&mut self, vectors: &[f32]) {
         let dim = self.pq.dim;
         assert!(vectors.len().is_multiple_of(dim), "vectors length not a multiple of dim");
+        assert!(
+            vectors.iter().all(|x| x.is_finite()),
+            "vectors must not contain NaN or infinite values"
+        );
         let count = vectors.len() / dim;
         let m = self.pq.m;
         let mut new_codes = vec![0u8; count * m];
@@ -294,15 +298,15 @@ impl PqIndex {
 
     fn scan(&self, query: &[f32], k: usize, filter: Option<&[bool]>, out_ids: &mut [i64],
            out_dists: &mut [f32]) {
+        assert!(
+            query.iter().all(|x| x.is_finite()),
+            "query must not contain NaN or infinite values"
+        );
         if k == 0 {
             return;
         }
         assert_eq!(out_ids.len(), k, "out_ids length {} must equal k ({k})", out_ids.len());
         assert_eq!(out_dists.len(), k, "out_dists length {} must equal k ({k})", out_dists.len());
-        assert!(
-            query.iter().all(|x| x.is_finite()),
-            "query must not contain NaN or infinite values"
-        );
         let stride = self.pq.k;
         let table = self.pq.adc_table(query, self.metric);
 
@@ -532,5 +536,16 @@ mod tests {
         pq.add(&data);
         let (mut ids, mut d) = (vec![0i64; 3], vec![0f32; 5]);
         pq.search(&gen(1, dim, 2), 5, &mut ids, &mut d);
+    }
+
+    #[test]
+    #[should_panic(expected = "must not contain NaN or infinite values")]
+    fn add_rejects_non_finite_vectors() {
+        let (n, dim) = (300usize, 16usize);
+        let data = gen(n, dim, 1);
+        let mut pq = PqIndex::train(&data, dim, Metric::L2, PqParams { m: 4, ..Default::default() });
+        let mut bad = gen(1, dim, 2);
+        bad[0] = f32::NAN;
+        pq.add(&bad);
     }
 }

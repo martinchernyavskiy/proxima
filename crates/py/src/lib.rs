@@ -42,7 +42,7 @@ fn check_finite(v: &[f32]) -> PyResult<()> {
     if v.iter().all(|x| x.is_finite()) {
         Ok(())
     } else {
-        Err(PyValueError::new_err("query must not contain NaN or infinite values"))
+        Err(PyValueError::new_err("input must not contain NaN or infinite values"))
     }
 }
 
@@ -88,6 +88,7 @@ impl PyFlatIndex {
             )));
         }
         let data = rows_c(&vectors);
+        check_finite(&data)?;
         py.allow_threads(|| self.inner.add(&data));
         Ok(())
     }
@@ -262,6 +263,7 @@ impl PyHnsw {
             return Err(PyValueError::new_err("vector dim mismatch"));
         }
         let data = rows_c(&vectors);
+        check_finite(&data)?;
         py.allow_threads(|| self.inner.add(&data));
         Ok(())
     }
@@ -480,6 +482,7 @@ impl PyPq {
             )));
         }
         let training_data = rows_c(&training);
+        check_finite(&training_data)?;
         let (dim, metric, params) = (self.dim, self.metric, self.params);
         let inner = py.allow_threads(|| CorePq::train(&training_data, dim, metric, params));
         self.inner = Some(inner);
@@ -487,14 +490,15 @@ impl PyPq {
     }
 
     fn add(&mut self, py: Python<'_>, vectors: PyReadonlyArray2<f32>) -> PyResult<()> {
-        if vectors.shape()[1] != self.dim {
-            return Err(PyValueError::new_err("vector dim mismatch"));
-        }
-        let data = rows_c(&vectors);
         let inner = self
             .inner
             .as_mut()
             .ok_or_else(|| PyValueError::new_err("index is not trained; call train() first"))?;
+        if vectors.shape()[1] != self.dim {
+            return Err(PyValueError::new_err("vector dim mismatch"));
+        }
+        let data = rows_c(&vectors);
+        check_finite(&data)?;
         py.allow_threads(|| inner.add(&data));
         Ok(())
     }

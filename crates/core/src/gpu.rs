@@ -48,14 +48,17 @@ impl CudaKnn {
                   out_dists: &mut [f32]) -> Result<(), String> {
         assert!(queries.len().is_multiple_of(self.dim), "query length not a multiple of dim");
         let nq = queries.len() / self.dim;
-        assert!(out_ids.len() >= nq * k && out_dists.len() >= nq * k, "output buffers too small");
-        if k == 0 {
-            return Ok(());
-        }
+        assert_eq!(out_ids.len(), nq * k,
+                   "out_ids length {} must equal nq * k ({nq} * {k})", out_ids.len());
+        assert_eq!(out_dists.len(), nq * k,
+                   "out_dists length {} must equal nq * k ({nq} * {k})", out_dists.len());
         assert!(
             queries.iter().all(|x| x.is_finite()),
             "query must not contain NaN or infinite values"
         );
+        if k == 0 {
+            return Ok(());
+        }
         let metric = match self.metric {
             Metric::L2 => 0,
             Metric::InnerProduct => 1,

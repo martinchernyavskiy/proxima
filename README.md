@@ -2,7 +2,7 @@
 
 **A from-scratch, GPU-accelerable vector search engine, written in Rust and demonstrated through semantic search.**
 
-> Search by *meaning*, not keywords. Type "a quiet beach town in southern Europe" and get the most semantically similar items from a corpus of millions, in milliseconds. It's the same retrieval technology that powers vector databases (Pinecone, Weaviate, Milvus) and the RAG layer of modern AI systems.
+> Search by *meaning*, not keywords. Type "a quiet beach town in southern Europe" and get the most semantically similar items from a corpus of millions, in milliseconds. It's the same kind of retrieval that sits underneath vector databases and the RAG layer of most modern AI systems.
 
 Proxima is an **approximate nearest-neighbor (ANN) vector search engine**, built from the ground up. It has a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and a benchmark harness that checks recall, latency, and memory against exact ground truth and against FAISS.
 
@@ -22,7 +22,7 @@ Proxima is an **approximate nearest-neighbor (ANN) vector search engine**, built
 
 ## Status
 
-Built milestone-by-milestone so it is resume-ready early and never an unfinished repo.
+Built in stages, each one a complete, working index before moving to the next.
 
 | Milestone | What | State |
 |-----------|------|-------|
@@ -34,16 +34,16 @@ Built milestone-by-milestone so it is resume-ready early and never an unfinished
 
 ## Results
 
-Apple M3 Pro · 100k Wikipedia (Simple English) articles · 384-dim embeddings · k=10 · 1,000 queries. Recall is measured against the exact flat index (ground truth). p50/p99 are single-query latency; QPS is throughput single-threaded (`1t`) and across all cores (`mt`).
+Apple M3 Pro · 100k Wikipedia (Simple English) articles · 384-dim embeddings · k=10 · 1,000 held-out queries (excluded from the indexed set, not just from the training set). Recall is measured against the exact flat index (ground truth). p50/p99 are single-query latency; QPS is throughput single-threaded (`1t`) and across all cores (`mt`).
 
 | index | recall@10 | p50 (ms) | p99 (ms) | QPS (1t) | QPS (mt) | mem |
 |-------|----------:|---------:|---------:|---------:|---------:|----:|
-| Flat (exact) | 1.000 | 4.44 | 5.76 | 231 | 532 | 154 MB |
-| HNSW `ef=16` | 0.974 | **0.22** | 0.39 | 4,499 | **31,392** | 174 MB |
-| HNSW `ef=64` | 0.996 | 0.70 | 1.13 | 1,551 | 10,379 | 174 MB |
-| HNSW `ef=256` | 0.999 | 2.32 | 3.56 | 448 | 3,047 | 174 MB |
+| Flat (exact) | 1.000 | 4.26 | 5.38 | 227 | 514 | 152 MB |
+| HNSW `ef=16` | 0.878 | **0.17** | 0.42 | 5,249 | **33,581** | 173 MB |
+| HNSW `ef=64` | 0.977 | 0.49 | 0.89 | 1,622 | 14,113 | 173 MB |
+| HNSW `ef=256` | 0.997 | 1.55 | 2.74 | 656 | 3,725 | 173 MB |
 
-**HNSW reaches 99.6% recall@10 at 0.70 ms p50, about 6× faster than exact single-threaded, and sustains 30k+ QPS at 97% recall.** `ef_search` is the recall/latency dial. (Reproduce: `python bench/run_bench.py --corpus data/wiki_simple`.)
+**HNSW reaches 97.7% recall@10 at 0.49 ms p50, about 9× faster than exact single-threaded, and sustains 14k+ QPS at that recall level** (or 33k+ QPS at 88% recall for the fastest setting). `ef_search` is the recall/latency dial. (Reproduce: `python bench/run_bench.py --corpus data/wiki_simple`.)
 
 ![HNSW's recall/latency dial vs. exact search on 100k Wikipedia articles](docs/assets/recall_latency_wiki.svg)
 

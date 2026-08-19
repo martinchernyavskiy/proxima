@@ -7,7 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from proxima import FlatIndex, HnswIndex, Metric, PqIndex
+from proxima import FlatIndex, HnswIndex, PqIndex
+from proxima.store import resolve_metric
 
 
 def _add_chunked(idx, vectors, chunk: int = 50_000) -> None:
@@ -35,7 +36,7 @@ def main() -> None:
 
     corpus = Path(args.corpus)
     manifest = json.loads((corpus / "manifest.json").read_text())
-    metric = getattr(Metric, manifest.get("metric", "InnerProduct"))
+    metric = resolve_metric(manifest.get("metric", "InnerProduct"))
     vectors = np.load(corpus / "vectors.npy", mmap_mode="r")
     n, dim = vectors.shape
     out = corpus / f"{args.type}.sfidx"

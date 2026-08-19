@@ -5,7 +5,16 @@ from pathlib import Path
 
 import numpy as np
 
+from ._core import Metric
 from .corpus import Doc
+
+_KNOWN_METRICS = ("L2", "InnerProduct")
+
+
+def resolve_metric(name: str) -> Metric:
+    if name not in _KNOWN_METRICS:
+        raise ValueError(f"unknown metric {name!r}; expected one of {_KNOWN_METRICS}")
+    return getattr(Metric, name)
 
 
 def save_corpus(data_dir: str | Path, vectors: np.ndarray, docs: list[Doc],
@@ -14,6 +23,8 @@ def save_corpus(data_dir: str | Path, vectors: np.ndarray, docs: list[Doc],
     data_dir = Path(data_dir)
     data_dir.mkdir(parents=True, exist_ok=True)
 
+    if vectors.ndim != 2:
+        raise ValueError(f"vectors must be 2D (n, dim), got shape {vectors.shape}")
     if vectors.shape[0] != len(docs):
         raise ValueError(
             f"vectors/docs count mismatch: {vectors.shape[0]} vectors vs {len(docs)} docs"
