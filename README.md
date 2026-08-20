@@ -86,8 +86,9 @@ baseline. RTX 4070 Ti vs. Ryzen 7 7800X3D (8 cores), 1M × 128, 2,000 queries, k
 | CPU flat, all cores | 10.8 s | 185 q/s | 1.9× |
 | **GPU exact (CUDA)** | **0.57 s** | **3,496 q/s** | **18.9× / 35.4×** |
 
-The GPU's top-k is cross-checked against the CPU index on every run: **exact
-agreement (1.0000)**. It's accelerated, not approximated. (Reproduce on an
+The GPU's top-k is cross-checked against the CPU index on every run, with
+**exact agreement (1.0000)** since both are exact algorithms, just at different
+speeds. (Reproduce on an
 NVIDIA machine: `cargo run --release --example gpu_knn --features cuda`; see
 [docs/SETUP-GPU.md](docs/SETUP-GPU.md).)
 

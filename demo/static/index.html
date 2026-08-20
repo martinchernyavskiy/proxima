@@ -257,7 +257,7 @@
         </div>
       </div>
 
-      <h2>Benchmarked, not just built</h2>
+      <h2>Benchmarks</h2>
       <div class="stat-grid">
         <div class="stat"><div class="stat-v">99%+</div><div class="stat-k">recall@10 vs. exact ground truth</div></div>
         <div class="stat"><div class="stat-v">&lt;1 ms</div><div class="stat-k">p50 latency over 1M vectors</div></div>
@@ -275,7 +275,6 @@
     <footer class="page-footer">
       <span>Proxima, built by Martin Chernyavskiy</span>
       <a href="https://github.com/martinchernyavskiy/proxima" target="_blank" rel="noopener">Source on GitHub</a>
-      <a href="https://github.com/martinchernyavskiy" target="_blank" rel="noopener">GitHub profile</a>
     </footer>
   </div>
 
@@ -385,7 +384,6 @@ function escAttr(s) {
 }
 
 const SVG_NS = "http://www.w3.org/2000/svg";
-const GOLDEN_ANGLE = 137.50776405003785 * Math.PI / 180;
 let constellationTimer = null;
 
 function svgEl(tag, attrs) {
@@ -427,9 +425,11 @@ function renderConstellation(trace, results, meta) {
   const rXmin = 24, rXmax = 272, rYmin = 16, rYmax = 92;
   const allScores = trace.map(t => t.score).concat(results.map(r => r.score));
   const min = Math.min(...allScores), max = Math.max(...allScores);
+  const totalPoints = trace.length + results.length;
+  const angleStep = totalPoints > 1 ? (Math.PI * 2 * 2.2) / (totalPoints - 1) : 0;
   const place = (score, i) => {
     const t = normDist(score, min, max);
-    const a = i * GOLDEN_ANGLE + (Math.random() - 0.5) * 0.35;
+    const a = i * angleStep + (Math.random() - 0.5) * 0.08;
     return {
       x: cx + (rXmin + t * (rXmax - rXmin)) * Math.cos(a),
       y: cy + (rYmin + t * (rYmax - rYmin)) * Math.sin(a),

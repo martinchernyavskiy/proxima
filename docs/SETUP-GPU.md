@@ -17,7 +17,7 @@ Cleanest (and you want this for the résumé anyway): push to GitHub, then clone
 
 ```bash
 # on the Mac, from the repo:
-gh repo create proxima --private --source=. --remote=origin --push
+gh repo create proxima --public --source=. --remote=origin --push
 #   ...or: git remote add origin https://github.com/<you>/proxima.git && git push -u origin main
 
 # on the desktop:
@@ -77,5 +77,5 @@ section and the résumé bullet.
 | `no kernel image is available` at runtime | Your GPU's compute capability differs from `sm_89`; edit the `-gencode` arch in `crates/core/build.rs` (find it via `nvidia-smi --query-gpu=compute_cap --format=csv`). |
 | CUDA out of memory | Lower `N` (the first CLI arg); the base matrix must fit in 12 GB VRAM. |
 
-If the build errors, send me the full output. The kernel is standard CUDA, so
-it's usually a toolchain/path issue that's quick to fix.
+Most build errors here come down to a toolchain or `PATH` issue rather than
+the kernel itself; the table above covers the common ones.
