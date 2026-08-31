@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Query
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, Response
 
 from proxima.search import SemanticSearch
 
@@ -82,3 +82,8 @@ def search(q: str, k: int = Query(10, ge=0, le=100)) -> JSONResponse:
 @app.get("/")
 def root() -> FileResponse:
     return FileResponse(STATIC / "index.html")
+
+
+@app.get("/favicon.ico")
+def favicon() -> Response:
+    return Response(status_code=204)
