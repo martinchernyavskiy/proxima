@@ -122,9 +122,11 @@
   .c-point { fill: var(--cool); opacity: .8; animation: c-pop .3s ease; }
   .c-point.c-final { fill: var(--ember); opacity: 1; filter: drop-shadow(0 0 4px var(--ember)); }
   .c-final-label { fill: var(--star); font: 600 11px var(--mono); }
-  .c-edge { stroke: var(--cool); stroke-width: 1; opacity: .28; animation: c-edge-in .3s ease; }
+  .c-edge { stroke: var(--cool); stroke-width: 1; opacity: .22; animation: c-edge-in .3s ease; }
+  .c-edge.c-edge-final { stroke: var(--ember); opacity: .3; animation: c-edge-in-final .3s ease; }
   @keyframes c-pop { from { opacity: 0; r: 0; } to { opacity: .8; } }
-  @keyframes c-edge-in { from { opacity: 0; } to { opacity: .28; } }
+  @keyframes c-edge-in { from { opacity: 0; } to { opacity: .22; } }
+  @keyframes c-edge-in-final { from { opacity: 0; } to { opacity: .3; } }
   .constellation-caption {
     margin: 10px 2px 0; color: var(--muted); font: 12.5px var(--mono); min-height: 16px;
   }
@@ -426,29 +428,23 @@ function renderConstellation(trace, results, meta) {
   const rXmin = 24, rXmax = 272, rYmin = 16, rYmax = 92;
   const allScores = trace.map(t => t.score).concat(results.map(r => r.score));
   const min = Math.min(...allScores), max = Math.max(...allScores);
-  const radius = (score) => {
-    const t = normDist(score, min, max);
-    return { rx: rXmin + t * (rXmax - rXmin), ry: rYmin + t * (rYmax - rYmin) };
-  };
-
-  const hopAngleStep = trace.length > 1 ? (Math.PI * 2 * 2.2) / (trace.length - 1) : 0;
-  const hops = trace.map((t, i) => {
-    const { rx, ry } = radius(t.score);
-    const a = i * hopAngleStep + (Math.random() - 0.5) * 0.08;
-    return { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a), layer: t.layer, title: t.title };
-  });
-
   const GOLDEN_ANGLE = 137.50776405003785 * Math.PI / 180;
-  const finals = results.map((r, i) => {
-    const { rx, ry } = radius(r.score);
+  const place = (score, i) => {
+    const t = normDist(score, min, max);
     const a = i * GOLDEN_ANGLE;
-    return { x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a), title: r.title };
-  });
+    return {
+      x: cx + (rXmin + t * (rXmax - rXmin)) * Math.cos(a),
+      y: cy + (rYmin + t * (rYmax - rYmin)) * Math.sin(a),
+    };
+  };
+  const hops = trace.map((t, i) => ({ ...place(t.score, i), layer: t.layer, title: t.title }));
+  const finals = results.map((r, i) => ({ ...place(r.score, trace.length + i), title: r.title }));
 
   svg.appendChild(svgEl("circle", { cx, cy, r: 5, class: "c-query" }));
 
   const finish = () => {
     finals.forEach((p, i) => {
+      svg.appendChild(svgEl("line", { x1: cx, y1: cy, x2: p.x, y2: p.y, class: "c-edge c-edge-final" }));
       svg.appendChild(svgEl("circle", { cx: p.x, cy: p.y, r: 5, class: "c-point c-final" }));
       if (i === 0) {
         const dx = p.x - cx, dy = p.y - cy;
@@ -468,12 +464,13 @@ function renderConstellation(trace, results, meta) {
       : "No matches found.";
   };
 
+  const drawHop = (p) => {
+    svg.appendChild(svgEl("line", { x1: cx, y1: cy, x2: p.x, y2: p.y, class: "c-edge" }));
+    svg.appendChild(svgEl("circle", { cx: p.x, cy: p.y, r: 2.6, class: "c-point" }));
+  };
+
   if (REDUCED_MOTION) {
-    hops.forEach((p, i) => {
-      const prev = i === 0 ? { x: cx, y: cy } : hops[i - 1];
-      svg.appendChild(svgEl("line", { x1: prev.x, y1: prev.y, x2: p.x, y2: p.y, class: "c-edge" }));
-      svg.appendChild(svgEl("circle", { cx: p.x, cy: p.y, r: 2.6, class: "c-point" }));
-    });
+    hops.forEach(drawHop);
     finish();
     return;
   }
@@ -484,11 +481,8 @@ function renderConstellation(trace, results, meta) {
   let i = 0;
   const step = () => {
     if (i >= hops.length) return finish();
-    const p = hops[i];
-    const prev = i === 0 ? { x: cx, y: cy } : hops[i - 1];
-    svg.appendChild(svgEl("line", { x1: prev.x, y1: prev.y, x2: p.x, y2: p.y, class: "c-edge" }));
-    svg.appendChild(svgEl("circle", { cx: p.x, cy: p.y, r: 2.6, class: "c-point" }));
-    caption.textContent = layerCaption(p.layer, p.title);
+    drawHop(hops[i]);
+    caption.textContent = layerCaption(hops[i].layer, hops[i].title);
     i++;
     constellationTimer = setTimeout(step, stepDelay);
   };
@@ -496,11 +490,7 @@ function renderConstellation(trace, results, meta) {
     clearTimeout(constellationTimer);
     svg.innerHTML = "";
     svg.appendChild(svgEl("circle", { cx, cy, r: 5, class: "c-query" }));
-    hops.forEach((p, idx) => {
-      const prev = idx === 0 ? { x: cx, y: cy } : hops[idx - 1];
-      svg.appendChild(svgEl("line", { x1: prev.x, y1: prev.y, x2: p.x, y2: p.y, class: "c-edge" }));
-      svg.appendChild(svgEl("circle", { cx: p.x, cy: p.y, r: 2.6, class: "c-point" }));
-    });
+    hops.forEach(drawHop);
     finish();
   };
   step();
