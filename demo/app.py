@@ -36,9 +36,19 @@ async def lifespan(app: FastAPI):
     print(f"[proxima] loading corpus: {corpus}", flush=True)
     ss = SemanticSearch.from_corpus(corpus)
     try:
-        qv = ss.embedder.encode_one("warmup query about history science and art")
-        for _ in range(8):
-            ss.index.search(qv, k=10)
+        warmup_texts = [
+            "history and science",
+            "art and culture",
+            "geography and nature",
+            "sports and entertainment",
+        ]
+        for text in warmup_texts:
+            qv = ss.embedder.encode_one(text)
+            for _ in range(6):
+                if hasattr(ss.index, "search_traced"):
+                    ss.index.search_traced(qv, k=10, max_trace=40)
+                else:
+                    ss.index.search(qv, k=10)
     except Exception:
         pass
     state["search"] = ss
