@@ -67,7 +67,7 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 - **Recall matches FAISS** at every operating point: Proxima's HNSW graph and PQ codebooks are correct (recall is even marginally higher, e.g. 0.965 vs 0.962 at ef=64).
 - **HNSW query latency/throughput is within ~1.3× of FAISS**: 0.16 ms vs 0.12 ms p50, 41k vs 55k QPS multi-thread. Solid for a hand-written engine.
 - **PQ compresses 512 MB down to 16 MB (32×)** with the same recall tradeoff as FAISS PQ.
-- **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free), **about 12× faster** than single-threaded, bringing the SIFT1M build into the same ballpark as FAISS (tens of seconds).
+- **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free), **about 6× faster** than single-threaded on an 11-core machine, finishing the full 1M-vector SIFT build in about two minutes.
 - **Where FAISS still wins, and why:** exact-flat throughput. FAISS uses a BLAS GEMM; Proxima uses a straightforward SIMD scan, roughly 20× slower there. That's a known, closeable gap (a blocked/BLAS matmul would fix it), not a correctness problem.
 
 ![SIFT1M recall vs. latency: Proxima HNSW vs. FAISS HNSW](docs/assets/recall_latency_sift1m.svg)
@@ -133,7 +133,7 @@ python scripts/build_index.py  --corpus data/wiki_1m --type hnsw   # persist the
 make demo                                                          # http://127.0.0.1:8000
 ```
 
-Type a natural-language query → semantically ranked Wikipedia results + the live index-search latency. Serves **sub-millisecond search over 1M articles** (the graph is warmed at startup). With no corpus built, `make corpus` builds a quick 100k Simple-English set.
+Type a natural-language query → semantically ranked Wikipedia results + the live index-search latency. Median index-search latency over 1M articles stays **under a millisecond** (the graph is warmed at startup); embedding the query itself takes longer than the search. With no corpus built, `make corpus` builds a quick 100k Simple-English set.
 
 ### Reproduce the benchmarks
 
