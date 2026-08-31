@@ -4,7 +4,7 @@
 
 > Search by *meaning*, not keywords. Type "a quiet beach town in southern Europe" and get the most semantically similar items from a corpus of millions, in milliseconds. It's the same kind of retrieval that sits underneath vector databases and the RAG layer of most modern AI systems.
 
-Proxima is an **approximate nearest-neighbor (ANN) vector search engine**, built from the ground up. It has a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and a benchmark harness that checks recall, latency, and memory against exact ground truth and against FAISS.
+Proxima is an **approximate nearest-neighbor (ANN) vector search engine**, built from the ground up. It has a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and a benchmark harness that checks recall, latency, and memory against exact ground truth and head-to-head against [FAISS](https://github.com/facebookresearch/faiss) on SIFT1M, matching its recall within about 1.3× of its query speed.
 
 🚀 **[Deploy the demo](docs/DEPLOY.md)** to a free hosted URL.
 
@@ -27,7 +27,7 @@ Built in stages, each one a complete, working index before moving to the next.
 | Milestone | What | State |
 |-----------|------|-------|
 | **M0** | Exact (flat) brute-force search + embeddings + minimal demo, end-to-end | ✅ done |
-| **M1** | GPU exact search (CUDA via FFI) + speedup number | ✅ done. **18.9× over multicore CPU** (35× single-thread), exact |
+| **M1** | GPU exact search (CUDA via FFI) + speedup number | ✅ done. **18.9× over multicore CPU** (35× single-thread) on an RTX 4070 Ti, exact |
 | **M2** | From-scratch **HNSW** index: recall@10 vs exact, latency | ✅ done (the centerpiece) |
 | **M3** | Scale to millions + **product quantization** + FAISS comparison | ✅ done |
 | **M4** | Polished demo (1M-scale), README diagram, results tables | ✅ done |
@@ -140,6 +140,14 @@ Type a natural-language query → semantically ranked Wikipedia results + the li
 ```bash
 python bench/run_bench.py  --corpus data/wiki_simple   # HNSW vs exact (recall/latency sweep)
 python bench/bench_sift.py                             # Proxima vs FAISS on SIFT1M
+```
+
+`bench_sift.py` needs the SIFT1M corpus, which isn't bundled (168 MB compressed). Fetch it once:
+
+```bash
+mkdir -p data/sift
+curl -o data/sift/sift.tar.gz ftp://ftp.irisa.fr/local/texmex/corpus/sift.tar.gz
+tar -xzf data/sift/sift.tar.gz -C data/sift   # -> data/sift/sift/*.fvecs
 ```
 
 ## Project layout
