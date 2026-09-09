@@ -27,7 +27,7 @@ Built in stages, each one a complete, working index before moving to the next.
 | Milestone | What | State |
 |-----------|------|-------|
 | **M0** | Exact (flat) brute-force search + embeddings + minimal demo, end-to-end | ✅ done |
-| **M1** | GPU exact search (CUDA via FFI) + speedup number | ✅ done. **24× over multicore CPU** (44× single-thread) on an RTX 5070, exact |
+| **M1** | GPU exact search (CUDA via FFI) + speedup number | ✅ done. **27× over multicore CPU** (48× single-thread) on an RTX 5070, exact |
 | **M2** | From-scratch **HNSW** index: recall@10 vs exact, latency | ✅ done (the centerpiece) |
 | **M3** | Scale to millions + **product quantization** + FAISS comparison | ✅ done |
 | **M4** | Polished demo (1M-scale), README diagram, results tables | ✅ done |
@@ -38,14 +38,14 @@ AMD Ryzen 7 7800X3D (8 cores / 16 threads) · 99k Wikipedia (Simple English) art
 
 | index | recall@10 | p50 (ms) | p99 (ms) | QPS (1t) | QPS (mt) | mem |
 |-------|----------:|---------:|---------:|---------:|---------:|----:|
-| Flat (exact) | 1.000 | 4.02 | 4.80 | 228 | 1,139 | 152 MB |
-| HNSW `ef=16` | 0.878 | **0.094** | 0.235 | 9,754 | **74,637** | 173 MB |
-| HNSW `ef=32` | 0.942 | 0.146 | 0.254 | 7,734 | 68,208 | 173 MB |
-| HNSW `ef=64` | 0.977 | 0.238 | 0.362 | 4,314 | 27,012 | 173 MB |
-| HNSW `ef=128` | 0.991 | 0.419 | 0.669 | 2,368 | 17,830 | 173 MB |
-| HNSW `ef=256` | 0.997 | 0.728 | 1.064 | 1,155 | 10,831 | 173 MB |
+| Flat (exact) | 1.000 | 4.03 | 4.59 | 250 | 1,977 | 152 MB |
+| HNSW `ef=16` | 0.877 | **0.065** | 0.115 | 14,374 | **112,718** | 173 MB |
+| HNSW `ef=32` | 0.941 | 0.110 | 0.179 | 8,765 | 67,855 | 173 MB |
+| HNSW `ef=64` | 0.979 | 0.209 | 0.302 | 4,766 | 38,696 | 173 MB |
+| HNSW `ef=128` | 0.993 | 0.365 | 0.514 | 2,645 | 22,023 | 173 MB |
+| HNSW `ef=256` | 0.996 | 0.665 | 0.933 | 1,542 | 12,437 | 173 MB |
 
-**HNSW reaches 97.7% recall@10 at 0.24 ms p50, about 17× faster than exact single-threaded, and sustains 27k QPS at that recall level** (or 75k QPS at 88% recall for the fastest setting). `ef_search` is the recall/latency dial. (Reproduce: `python bench/run_bench.py --corpus data/wiki_simple --ef 16,32,64,128,256 --json bench/results/wiki_simple_100k.json`.)
+**HNSW reaches 97.9% recall@10 at 0.21 ms p50, about 19× faster than exact single-threaded, and sustains 39k QPS at that recall level** (or 113k QPS at 88% recall for the fastest setting). `ef_search` is the recall/latency dial. (Reproduce: `python bench/run_bench.py --corpus data/wiki_simple --ef 16,32,64,128,256 --json bench/results/wiki_simple_100k.json`.)
 
 ![HNSW's recall/latency dial vs. exact search on 100k Wikipedia articles](docs/assets/recall_latency_wiki.svg)
 
@@ -86,9 +86,9 @@ k=10, on an otherwise idle machine:
 
 | | time | throughput | speedup |
 |---|-----:|-----------:|--------:|
-| CPU flat, 1 thread | 24.9 s | 80 q/s | 1× |
-| CPU flat, all cores | 13.7 s | 146 q/s | 1.8× |
-| **GPU exact (CUDA)** | **0.57 s** | **3,537 q/s** | **24.2× / 44.0×** |
+| CPU flat, 1 thread | 22.9 s | 87 q/s | 1× |
+| CPU flat, all cores | 12.9 s | 155 q/s | 1.8× |
+| **GPU exact (CUDA)** | **0.48 s** | **4,142 q/s** | **26.7× / 47.5×** |
 
 The GPU's top-k is cross-checked against the CPU index on every run, with
 **exact agreement (1.0000)** since both are exact algorithms, just at different
