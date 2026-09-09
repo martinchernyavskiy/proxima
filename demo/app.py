@@ -58,7 +58,8 @@ async def lifespan(app: FastAPI):
     state.clear()
 
 
-app = FastAPI(title="Proxima", lifespan=lifespan)
+app = FastAPI(title="Proxima", lifespan=lifespan,
+              docs_url=None, redoc_url=None, openapi_url=None)
 
 
 @app.get("/api/info")
