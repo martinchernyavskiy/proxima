@@ -5,6 +5,7 @@
 # Compiled Python extension (built by maturin)
 python/proxima/_core*.so
 python/proxima/*.pyd
+python/proxima/*.pdb
 
 # Python
 .venv/
