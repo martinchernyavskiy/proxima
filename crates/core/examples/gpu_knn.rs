@@ -305,8 +305,6 @@ fn build_json(argv: &[String], gpu: &GpuInfo, cpu: &str, cores: usize, n: usize,
         ("timestamp_utc", jstr(&utc_timestamp())),
         ("hostname", jopt(hostname().as_deref())),
         ("argv", jarray(argv)),
-        ("cwd", jopt(std::env::current_dir().ok()
-            .and_then(|p| p.to_str().map(str::to_string)).as_deref())),
         ("os", os),
         ("cpu", cpu_obj),
         ("gpu", gpu_obj),

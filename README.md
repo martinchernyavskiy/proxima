@@ -68,10 +68,10 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 
 **Takeaways:**
 - **Recall matches FAISS** at every operating point: Proxima's HNSW graph and PQ codebooks are correct (recall is even marginally higher, e.g. 0.966 vs 0.962 at ef=64).
-- **Throughput is at parity, not ahead.** Across all cores the ratio to FAISS is 1.09× at ef=32, 0.90× at ef=64 and 1.06× at ef=128 — it lands on either side of even depending on the operating point, so the honest summary is a tie within noise rather than a win. Each figure is the median of 7 timed passes; a single pass moves them by more than the gap. FAISS keeps a small edge single-threaded.
+- **Throughput is at parity, not ahead.** Across all cores the ratio to FAISS is 1.09× at ef=32, 0.90× at ef=64 and 1.06× at ef=128 — it lands on either side of even depending on the operating point, so the honest summary is a tie within noise rather than a win. Each figure is the median of 7 timed passes; a single pass moves them by more than the gap. FAISS keeps a small edge single-threaded at ef=32 and ef=64, and the two are level at ef=128.
 - **PQ compresses 512 MB down to 16 MB (32×)** with the same recall tradeoff as FAISS PQ.
 - **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free), finishing the full 1M-vector SIFT index in **43 s** against FAISS's 57 s.
-- **Where FAISS still wins, and why:** batched exact-flat throughput. FAISS uses a BLAS GEMM; Proxima uses a straightforward SIMD scan, about 5× slower on that path (782 vs 158 QPS multi-threaded). Single-query flat latency actually favors Proxima (9.9 ms vs 13.4 ms) — the GEMM only pays off once the batch is large. A blocked matmul would close it; it is not a correctness problem.
+- **Where FAISS still wins, and why:** batched exact-flat throughput. FAISS uses a BLAS GEMM; Proxima uses a scalar scan over 8-wide accumulators that LLVM auto-vectorizes under `-C target-cpu=native`, about 5× slower on that path (782 vs 158 QPS multi-threaded). Single-query flat latency actually favors Proxima (9.9 ms vs 13.4 ms) — the GEMM only pays off once the batch is large. A blocked matmul would close it; it is not a correctness problem.
 
 ![SIFT1M recall vs. latency: Proxima HNSW vs. FAISS HNSW](docs/assets/recall_latency_sift1m.svg)
 
@@ -82,7 +82,7 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 A custom CUDA k-NN kernel (one block per query, base stored transposed for
 coalesced reads, block-level top-k reduction) accelerates the exact brute-force
 baseline. RTX 5070 vs. Ryzen 7 7800X3D (8 cores / 16 threads), 1M × 128, 2,000 queries,
-k=10. Median of three runs on an otherwise idle machine:
+k=10, on an otherwise idle machine:
 
 | | time | throughput | speedup |
 |---|-----:|-----------:|--------:|
@@ -93,7 +93,7 @@ k=10. Median of three runs on an otherwise idle machine:
 The GPU's top-k is cross-checked against the CPU index on every run, with
 **exact agreement (1.0000)** since both are exact algorithms, just at different
 speeds. (Reproduce on an
-NVIDIA machine: `cargo run --release --example gpu_knn --features cuda`; see
+NVIDIA machine, CUDA 12.8+: `cargo run --release --example gpu_knn --features cuda -- 1000000 128 2000 10 0 5`; see
 [docs/SETUP-GPU.md](docs/SETUP-GPU.md).)
 
 Every figure is the median of 5 timed runs taken inside one invocation, so
@@ -145,7 +145,7 @@ python scripts/build_index.py  --corpus data/wiki_1m --type hnsw   # persist the
 make demo                                                          # http://127.0.0.1:8000
 ```
 
-Type a natural-language query → semantically ranked Wikipedia results + the live index-search latency. Median index-search latency over 1M articles stays **under a millisecond** (the graph is warmed at startup); embedding the query itself takes longer than the search. With no corpus built, `make corpus` builds a quick 100k Simple-English set.
+Type a natural-language query → semantically ranked Wikipedia results + the live index-search latency. Index-search latency stays well under a millisecond on the corpora measured above (the graph is warmed at startup); embedding the query itself takes longer than the search. With no corpus built, `make corpus` builds a quick 100k Simple-English set.
 
 ### Reproduce the benchmarks
 

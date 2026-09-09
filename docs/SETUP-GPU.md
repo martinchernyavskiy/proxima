@@ -52,7 +52,7 @@ On Windows that's `set PX_CUDA_ARCH=89` (cmd) or `$env:PX_CUDA_ARCH=89`
 
 ```bash
 cargo run --release --example gpu_knn --features cuda
-# custom sizes: N base, dim, num-queries, k
+# custom sizes: N base, dim, num-queries, k, device, reps
 cargo run --release --example gpu_knn --features cuda -- 1000000 128 2000 10
 ```
 
@@ -62,11 +62,15 @@ throughput and speedup for each, and a top-k agreement figure.
 The **agreement check is the important part**. The GPU and the CPU flat index
 are both exact, so their top-k must match to ~1.0. That's what proves the kernel
 is correct, not just fast — a fast kernel that quietly returns the wrong
-neighbours is worse than no kernel.
+neighbors is worse than no kernel.
 
-Run it three to five times and take the median before recording anything. The
-example times each phase once, so a single run picks up whatever else the
-machine was doing.
+The example times each phase `reps` times and reports the median, so a single
+invocation already absorbs whatever else the machine was doing. It defaults to 3;
+pass a larger count as the sixth argument when you are recording a number:
+
+```bash
+cargo run --release --example gpu_knn --features cuda -- 1000000 128 2000 10 0 5
+```
 
 ## Troubleshooting
 
