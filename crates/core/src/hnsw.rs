@@ -242,17 +242,25 @@ impl Hnsw {
             }
         }
 
-        {
+        let outcome = {
             let this: &Hnsw = self;
-            (first..start + count)
-                .into_par_iter()
-                .for_each(|id| this.link_node(id as u32, &locked, &entry));
-        }
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                (first..start + count)
+                    .into_par_iter()
+                    .for_each(|id| this.link_node(id as u32, &locked, &entry));
+            }))
+        };
 
-        self.links = locked.into_iter().map(|l| l.into_inner().unwrap()).collect();
-        let e = entry.into_inner().unwrap();
+        self.links = locked
+            .into_iter()
+            .map(|l| l.into_inner().unwrap_or_else(|e| e.into_inner()))
+            .collect();
+        let e = entry.into_inner().unwrap_or_else(|e| e.into_inner());
         self.entry_point = e.point;
         self.max_level = e.max_level;
+        if let Err(payload) = outcome {
+            std::panic::resume_unwind(payload);
+        }
     }
 
     fn link_node(&self, id: u32, links: &[RwLock<Vec<Vec<u32>>>], entry: &Mutex<Entry>) {
@@ -268,9 +276,8 @@ impl Hnsw {
             cur = self.greedy_descend(&graph, v, cur, lc, Some(id));
         }
 
-        let live_max_level = entry.lock().unwrap().max_level;
         let mut entry_points = vec![cur];
-        let top = level.min(live_max_level);
+        let top = level.min(max_level);
         for lc in (0..=top).rev() {
             let candidates = self.search_layer(&graph, v, &entry_points, self.params.ef_construction,
                                                lc, None, Some(id));
@@ -870,6 +877,30 @@ mod tests {
                         "node {id} contains itself as a neighbor on layer {layer} (seed {seed})");
                 }
             }
+        }
+    }
+
+    #[test]
+    fn no_links_above_node_level_after_parallel_build() {
+        for seed in 1..=4u64 {
+            let (n, dim) = (10000usize, 16usize);
+            let data = gen(n, dim, seed);
+            let mut h = Hnsw::new(dim, Metric::L2,
+                HnswParams { m: 4, ef_construction: 200, seed, ..Default::default() });
+            h.add(&data);
+            assert!(h.max_level >= 2,
+                "seed {seed} only reached level {}, too flat to exercise entry-point growth",
+                h.max_level);
+            assert_eq!(h.links.len(), h.levels.len(), "seed {seed}");
+            for (id, layers) in h.links.iter().enumerate() {
+                assert!(layers.len() <= h.levels[id] + 1,
+                    "node {id} holds {} adjacency layers but sits at level {} (seed {seed})",
+                    layers.len(), h.levels[id]);
+            }
+            let ep = h.entry_point.expect("a populated index must have an entry point") as usize;
+            assert!(h.max_level <= h.levels[ep],
+                "entry point {ep} sits at level {} but max_level is {} (seed {seed})",
+                h.levels[ep], h.max_level);
         }
     }
 }
