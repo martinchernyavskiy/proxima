@@ -6,13 +6,18 @@ builds the Rust engine, bakes a small (30k-article Simple-English Wikipedia)
 corpus + index at image-build time, and serves on port `7860`.
 
 Because the query has to be embedded server-side, the image includes PyTorch +
-sentence-transformers (~2 GB). **Hugging Face Spaces** is the recommended host:
-free, 16 GB RAM, no credit card, and purpose-built for this.
+sentence-transformers, so the running container needs roughly 2 GB of RAM. That
+rules out most free tiers, which cap at 512 MB.
 
-## Hugging Face Spaces (recommended, free)
+**Hugging Face Spaces** is the recommended host. Creating a Space that runs on
+compute now requires a PRO subscription ($9/month as of September 2026); the
+CPU Basic hardware it then gives you (2 vCPU, 16 GB RAM) costs nothing per hour.
+Static Spaces remain free but cannot run a server.
 
-1. Create a free account at <https://huggingface.co/join>.
-2. **New → Space.** Choose **Docker → Blank**, hardware **CPU basic (free)**, name it e.g. `proxima`.
+## Hugging Face Spaces (recommended)
+
+1. Create an account at <https://huggingface.co/join> and subscribe to PRO.
+2. **New → Space.** Choose **Docker → Blank**, hardware **CPU Basic**, name it e.g. `proxima`.
 3. Put this repo's files in the Space's git repo. Easiest is to add the Space as a remote and push:
    ```bash
    git remote add space https://huggingface.co/spaces/<your-username>/proxima
@@ -39,8 +44,19 @@ free, 16 GB RAM, no credit card, and purpose-built for this.
 
 ## Other hosts
 
-The same `Dockerfile` works on any container platform, including **Render**,
-**Fly.io**, **Railway**, or a VPS. Point the platform at the Dockerfile and
-expose port `7860` (or set `--port $PORT` in the start command for platforms
-that inject a `PORT` env var). These generally need a credit card on file even
-for free tiers, which is why Spaces is the recommended default.
+The same `Dockerfile` works on any container platform. Point it at the Dockerfile
+and expose port `7860` (or set `--port $PORT` for platforms that inject a `PORT`
+env var).
+
+Be aware of the memory floor. As of September 2026 the free tiers on Render and
+Koyeb are both 512 MB, which is not enough to hold PyTorch plus the index, so the
+container will not start. Fly.io no longer offers a free tier and Railway is a
+trial credit rather than an ongoing one. Anything with 2 GB or more works —
+Google Cloud Run and Oracle Cloud's always-free instances both qualify, though
+both want a card on file.
+
+If you want this to fit a 512 MB tier, the change worth making is replacing
+PyTorch and sentence-transformers with ONNX Runtime and an ONNX export of the
+same MiniLM model. That drops the image by roughly an order of magnitude and the
+resident set to a few hundred megabytes, at no cost to search quality — the
+engine itself never touches the embedding model.
