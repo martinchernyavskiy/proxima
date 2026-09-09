@@ -1,10 +1,9 @@
 {
   "schema_version": 1,
   "provenance": {
-    "timestamp_utc": "2026-09-09T20:33:07Z",
+    "timestamp_utc": "2026-09-09T21:31:08Z",
     "hostname": "CRIMSON",
     "argv": ["target\\release\\examples\\gpu_knn.exe", "1000000", "128", "2000", "10", "0", "5"],
-    "cwd": "C:\\Users\\marti\\OneDrive\\Documents\\Projects\\SearchForge",
     "os": {
       "system": "windows",
       "machine": "x86_64"
@@ -23,7 +22,7 @@
       "total_vram_bytes": 12792037376
     },
     "git": {
-      "sha": "348412a0de18aaf41f8c19d01b3b3767d2054a11",
+      "sha": "77f837a1604c2718b6e0cd0fc1955e89148af27f",
       "branch": "fix/blackwell-and-doc-accuracy",
       "dirty": true
     },
@@ -39,14 +38,14 @@
     "metric": "L2"
   },
   "results": {
-    "cpu_1t_seconds": 24.8748533,
-    "cpu_1t_qps": 80.40248422289187,
-    "cpu_mt_seconds": 13.7014795,
-    "cpu_mt_qps": 145.96963780444295,
-    "gpu_seconds": 0.5654313,
-    "gpu_qps": 3537.122900695452,
-    "speedup_vs_cpu_1t": 43.99270662943491,
-    "speedup_vs_cpu_mt": 24.231908456429633,
+    "cpu_1t_seconds": 22.9455061,
+    "cpu_1t_qps": 87.16303712298593,
+    "cpu_mt_seconds": 12.8813756,
+    "cpu_mt_qps": 155.26292083277193,
+    "gpu_seconds": 0.4828308,
+    "gpu_qps": 4142.237819128357,
+    "speedup_vs_cpu_1t": 47.522871573230205,
+    "speedup_vs_cpu_mt": 26.678860586358617,
     "reps": 5,
     "topk_agreement": 1
   }
