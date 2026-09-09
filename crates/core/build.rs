@@ -3,10 +3,17 @@ fn main() {
         return;
     }
     println!("cargo:rerun-if-changed=cuda/knn.cu");
+    println!("cargo:rerun-if-env-changed=PX_CUDA_ARCH");
+    println!("cargo:rerun-if-env-changed=CUDA_PATH");
+
+    let arch = std::env::var("PX_CUDA_ARCH").unwrap_or_else(|_| "120".to_string());
+    let sass = format!("-gencode=arch=compute_{arch},code=sm_{arch}");
+    let ptx = format!("-gencode=arch=compute_{arch},code=compute_{arch}");
 
     cc::Build::new()
         .cuda(true)
-        .flag("-gencode=arch=compute_89,code=sm_89")
+        .flag(&sass)
+        .flag(&ptx)
         .file("cuda/knn.cu")
         .compile("proxima_knn");
 

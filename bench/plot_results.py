@@ -129,7 +129,7 @@ def plot_wiki(results: list[dict]) -> None:
 
     all_x = xs + [fx]
     _set_log_ticks(ax, [0.2, 0.5, 1, 2, 5], min(all_x), max(all_x))
-    ax.set_ylim(0.965, 1.006)
+    ax.set_ylim(0.87, 1.006)
     ax.yaxis.set_major_formatter(mticker.FuncFormatter(lambda y, _: f"{y:.3f}"))
     _style(ax, "p50 query latency (log scale)", "recall@10")
 

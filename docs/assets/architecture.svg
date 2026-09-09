@@ -96,7 +96,7 @@
   <rect x="60" y="560" width="360" height="70" rx="8" fill="#e9f8f1" stroke="#1baf7a" stroke-width="1.4"/>
   <text x="240" y="585" font-size="12" font-weight="700" fill="#0b6b47" text-anchor="middle">CUDA kernel (feature-gated) via FFI</text>
   <text x="240" y="603" font-size="10" fill="#0b6b47" text-anchor="middle">one block/query · coalesced transposed reads</text>
-  <text x="240" y="619" font-size="10" fill="#0b6b47" text-anchor="middle" font-weight="600">RTX 4070 Ti: 18.9x over 8-core CPU, exact</text>
+  <text x="240" y="619" font-size="10" fill="#0b6b47" text-anchor="middle" font-weight="600">CUDA exact k-NN kernel, cross-checked against CPU</text>
 
   <!-- FAISS comparison (satellite, outside the Rust-core border) -->
   <rect x="680" y="560" width="300" height="70" rx="8" fill="#ffffff" stroke="#c7c6c0" stroke-width="1.3" stroke-dasharray="3,3"/>

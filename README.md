@@ -4,7 +4,7 @@
 
 > Search by *meaning*, not keywords. Type "a quiet beach town in southern Europe" and get the most semantically similar items from a corpus of millions, in milliseconds. It's the same kind of retrieval that sits underneath vector databases and the RAG layer of most modern AI systems.
 
-Proxima is an **approximate nearest-neighbor (ANN) vector search engine**, built from the ground up. It has a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and a benchmark harness that checks recall, latency, and memory against exact ground truth and head-to-head against [FAISS](https://github.com/facebookresearch/faiss) on SIFT1M, matching its recall within about 1.3× of its query speed.
+Proxima is an **approximate nearest-neighbor (ANN) vector search engine**, built from the ground up. It has a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and a benchmark harness that checks recall, latency, and memory against exact ground truth and head-to-head against [FAISS](https://github.com/facebookresearch/faiss) on SIFT1M, matching its recall at every operating point and landing within 1.3–1.45× of its query speed depending on where you sit on the recall dial.
 
 🚀 **[Deploy the demo](docs/DEPLOY.md)** to a free hosted URL.
 
@@ -43,13 +43,15 @@ Apple M3 Pro · 100k Wikipedia (Simple English) articles · 384-dim embeddings �
 | HNSW `ef=64` | 0.977 | 0.49 | 0.89 | 1,622 | 14,113 | 173 MB |
 | HNSW `ef=256` | 0.997 | 1.55 | 2.74 | 656 | 3,725 | 173 MB |
 
-**HNSW reaches 97.7% recall@10 at 0.49 ms p50, about 9× faster than exact single-threaded, and sustains 14k+ QPS at that recall level** (or 33k+ QPS at 88% recall for the fastest setting). `ef_search` is the recall/latency dial. (Reproduce: `python bench/run_bench.py --corpus data/wiki_simple`.)
+**HNSW reaches 97.7% recall@10 at 0.49 ms p50, about 9× faster than exact single-threaded, and sustains 14k+ QPS at that recall level** (or 33k+ QPS at 88% recall for the fastest setting). `ef_search` is the recall/latency dial. (Reproduce: `python bench/run_bench.py --corpus data/wiki_simple --ef 16,32,64,128,256 --json bench/results/wiki_simple_100k.json`.)
 
 ![HNSW's recall/latency dial vs. exact search on 100k Wikipedia articles](docs/assets/recall_latency_wiki.svg)
 
 ### SIFT1M: head-to-head vs FAISS
 
 The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact ground truth), run against [FAISS](https://github.com/facebookresearch/faiss) on identical data, queries, and ground truth. Apple M3 Pro, k=10, 1,000 queries.
+
+This table was measured at `522c4e4`, before the parallel-build fix in `bc5b4a0` corrected a race where a node could discover itself as a candidate mid-insert. Recall may shift slightly once it's re-run; the numbers stand as recorded rather than as current.
 
 | index | recall@10 | p50 (ms) | QPS (1t) | QPS (mt) | mem |
 |-------|----------:|---------:|---------:|---------:|----:|
@@ -59,26 +61,27 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 | **PX** HNSW `ef=128` | 0.990 | 0.279 | 3,705 | 23,257 | 684 MB |
 | **PX** PQ `m=16` | 0.540 | 5.86 | 170 | 1,128 | **16 MB** |
 | FAISS Flat | 0.999 | 8.39 | 1,669 | 2,743 | 512 MB |
+| FAISS HNSW `ef=32` | 0.900 | 0.070 | 16,980 | 98,160 | 656 MB |
 | FAISS HNSW `ef=64` | 0.962 | 0.121 | 9,335 | 54,744 | 656 MB |
 | FAISS HNSW `ef=128` | 0.990 | 0.219 | 4,996 | 29,554 | 656 MB |
 | FAISS PQ `m=16` | 0.533 | 3.18 | 322 | 2,008 | 16 MB |
 
 **Takeaways:**
 - **Recall matches FAISS** at every operating point: Proxima's HNSW graph and PQ codebooks are correct (recall is even marginally higher, e.g. 0.965 vs 0.962 at ef=64).
-- **HNSW query latency/throughput is within ~1.3× of FAISS**: 0.16 ms vs 0.12 ms p50, 41k vs 55k QPS multi-thread. Solid for a hand-written engine.
+- **HNSW query latency/throughput sits within 1.3–1.45× of FAISS**, and the gap widens as you trade recall for speed: 1.27× at ef=128, 1.34× at ef=64 (0.16 ms vs 0.12 ms p50, 41k vs 55k QPS multi-thread), 1.42× at ef=32. Solid for a hand-written engine, and the low-recall end is where a blocked distance kernel would buy the most.
 - **PQ compresses 512 MB down to 16 MB (32×)** with the same recall tradeoff as FAISS PQ.
 - **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free), **about 6× faster** than single-threaded on an 11-core machine, finishing the full 1M-vector SIFT build in about two minutes.
 - **Where FAISS still wins, and why:** exact-flat throughput. FAISS uses a BLAS GEMM; Proxima uses a straightforward SIMD scan, roughly 20× slower there. That's a known, closeable gap (a blocked/BLAS matmul would fix it), not a correctness problem.
 
 ![SIFT1M recall vs. latency: Proxima HNSW vs. FAISS HNSW](docs/assets/recall_latency_sift1m.svg)
 
-(Reproduce: `python bench/bench_sift.py`; regenerate these charts with `python bench/plot_results.py`.)
+(Reproduce: `python bench/bench_sift.py --json bench/results/sift1m.json`; regenerate these charts with `python bench/plot_results.py`.)
 
 ### GPU exact search (CUDA)
 
 A custom CUDA k-NN kernel (one block per query, base stored transposed for
 coalesced reads, block-level top-k reduction) accelerates the exact brute-force
-baseline. RTX 4070 Ti vs. Ryzen 7 7800X3D (8 cores), 1M × 128, 2,000 queries, k=10:
+baseline. RTX 4070 Ti vs. Ryzen 7 7800X3D (8 cores / 16 threads), 1M × 128, 2,000 queries, k=10:
 
 | | time | throughput | speedup |
 |---|-----:|-----------:|--------:|
@@ -91,6 +94,10 @@ The GPU's top-k is cross-checked against the CPU index on every run, with
 speeds. (Reproduce on an
 NVIDIA machine: `cargo run --release --example gpu_knn --features cuda`; see
 [docs/SETUP-GPU.md](docs/SETUP-GPU.md).)
+
+Both the card and the CPU in that row belonged to a machine I no longer have, so
+this table is a record of one run rather than something you can reproduce as
+written. It gets replaced after a re-measurement on current hardware.
 
 ## Build & develop
 
@@ -110,10 +117,13 @@ cargo test -p proxima-core         # pure-Rust engine tests
 import numpy as np
 from proxima import FlatIndex, HnswIndex, PqIndex, Metric
 
+vectors = np.random.rand(100_000, 384).astype("float32")
+query = np.random.rand(384).astype("float32")
+
 # Exact baseline
 flat = FlatIndex(dim=384, metric=Metric.InnerProduct)
-flat.add(np.random.rand(100_000, 384).astype("float32"))
-ids, scores = flat.search(np.random.rand(384).astype("float32"), k=10)
+flat.add(vectors)
+ids, scores = flat.search(query, k=10)
 
 # Approximate HNSW, same interface, ~ms latency at scale
 hnsw = HnswIndex(dim=384, metric=Metric.InnerProduct, m=16, ef_search=64)
