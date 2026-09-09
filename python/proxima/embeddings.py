@@ -18,7 +18,9 @@ class TextEmbedder:
         self.device = device
         self.normalize = normalize
         self.model = SentenceTransformer(model_name, device=device)
-        self.dim: int = self.model.get_sentence_embedding_dimension()
+        dim_of = (getattr(self.model, "get_embedding_dimension", None)
+                  or self.model.get_sentence_embedding_dimension)
+        self.dim: int = dim_of()
 
     def encode(self, texts: list[str], batch_size: int = 256,
                show_progress: bool = False) -> np.ndarray:

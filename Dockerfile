@@ -13,9 +13,9 @@ ENV HF_HOME=/app/.hf
 
 WORKDIR /app
 
-RUN pip install --no-cache-dir maturin \
- && pip install --no-cache-dir torch --index-url https://download.pytorch.org/whl/cpu \
- && pip install --no-cache-dir sentence-transformers datasets fastapi "uvicorn[standard]"
+RUN pip install --no-cache-dir maturin==1.15.0 \
+ && pip install --no-cache-dir torch==2.14.0 --index-url https://download.pytorch.org/whl/cpu \
+ && pip install --no-cache-dir sentence-transformers==6.0.1 datasets==5.0.1 fastapi==0.141.1 "uvicorn[standard]==0.52.4"
 
 COPY Cargo.toml Cargo.lock pyproject.toml README.md ./
 COPY .cargo ./.cargo
