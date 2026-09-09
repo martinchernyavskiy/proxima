@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import gc
 import sys
 import time
 from pathlib import Path
@@ -91,6 +92,9 @@ def main() -> None:
     record(f"PX PQ(m={args.pq_m})", px_pq, t_pq)
     print(f"  PX PQ compression: {px_pq.compression_ratio:.1f}x "
           f"({px_pq.raw_bytes / 1e6:.0f}MB -> {px_pq.memory_bytes / 1e6:.1f}MB)")
+
+    del px_flat, px_hnsw, px_pq
+    gc.collect()
 
     if not args.no_faiss:
         import faiss_compare as fc

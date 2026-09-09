@@ -160,7 +160,6 @@ def collect_provenance() -> dict:
             "timestamp_utc": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
             "hostname": _safe(platform.node) or _safe(socket.gethostname) or "unknown",
             "argv": list(sys.argv),
-            "cwd": _safe(os.getcwd),
             "os": {
                 "platform": _safe(platform.platform),
                 "system": _safe(platform.system),
@@ -175,7 +174,6 @@ def collect_provenance() -> dict:
             "git": _safe(_git_info, {}),
             "versions": {
                 "python": _safe(platform.python_version),
-                "python_executable": sys.executable,
                 "numpy": _safe(lambda: _module_version("numpy")),
                 "faiss": _safe(lambda: _module_version("faiss")),
                 "rustc": _safe(lambda: _run(["rustc", "--version"])),

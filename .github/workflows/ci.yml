@@ -16,7 +16,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo test -p proxima-core
+      - run: cargo test -p proxima-core --release
 
   python:
     name: pytest (${{ matrix.os }})

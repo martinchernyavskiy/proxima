@@ -6,6 +6,7 @@
 python/proxima/_core*.so
 python/proxima/*.pyd
 python/proxima/*.pdb
+*.sfidx
 
 # Python
 .venv/

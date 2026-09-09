@@ -80,7 +80,7 @@ struct Locked<'a>(&'a [RwLock<Vec<Vec<u32>>>]);
 impl Graph for Locked<'_> {
     #[inline]
     fn for_each<F: FnMut(u32)>(&self, node: u32, layer: usize, mut f: F) {
-        let g = self.0[node as usize].read().unwrap();
+        let g = self.0[node as usize].read().unwrap_or_else(|e| e.into_inner());
         if let Some(nbrs) = g.get(layer) {
             for &x in nbrs {
                 f(x);
@@ -234,7 +234,7 @@ impl Hnsw {
         let entry = Mutex::new(Entry { point: self.entry_point, max_level: self.max_level });
         let mut first = start;
         {
-            let mut e = entry.lock().unwrap();
+            let mut e = entry.lock().unwrap_or_else(|e| e.into_inner());
             if e.point.is_none() {
                 e.point = Some(start as u32);
                 e.max_level = self.levels[start];
@@ -268,7 +268,7 @@ impl Hnsw {
         let level = self.levels[id as usize];
         let graph = Locked(links);
         let (mut cur, max_level) = {
-            let e = entry.lock().unwrap();
+            let e = entry.lock().unwrap_or_else(|e| e.into_inner());
             (e.point.expect("entry set before parallel phase"), e.max_level)
         };
 
@@ -294,7 +294,7 @@ impl Hnsw {
         }
 
         if level > max_level {
-            let mut e = entry.lock().unwrap();
+            let mut e = entry.lock().unwrap_or_else(|e| e.into_inner());
             if level > e.max_level {
                 e.max_level = level;
                 e.point = Some(id);
@@ -304,7 +304,7 @@ impl Hnsw {
 
     fn connect(&self, links: &[RwLock<Vec<Vec<u32>>>], node: u32, neighbor: u32, layer: usize,
                cap: usize) {
-        let mut g = links[node as usize].write().unwrap();
+        let mut g = links[node as usize].write().unwrap_or_else(|e| e.into_inner());
         g[layer].push(neighbor);
         if g[layer].len() > cap {
             let nvec = self.vec_at(node);

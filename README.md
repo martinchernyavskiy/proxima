@@ -132,7 +132,8 @@ hnsw.add(vectors)
 hnsw.save("index.sfidx"); hnsw = HnswIndex.load("index.sfidx")
 
 # Metadata-filtered search: "nearest neighbors WHERE category = X"
-mask = category_ids == target_category   # bool array, one entry per stored vector
+category_ids = np.random.randint(0, 8, size=len(vectors))
+mask = category_ids == 3   # bool array, one entry per stored vector
 ids, scores = hnsw.search_filtered(query, mask, k=10)
 ```
 
