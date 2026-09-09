@@ -27,7 +27,7 @@ Built in stages, each one a complete, working index before moving to the next.
 | Milestone | What | State |
 |-----------|------|-------|
 | **M0** | Exact (flat) brute-force search + embeddings + minimal demo, end-to-end | ✅ done |
-| **M1** | GPU exact search (CUDA via FFI) + speedup number | ✅ done. **18.9× over multicore CPU** (35× single-thread) on an RTX 4070 Ti, exact |
+| **M1** | GPU exact search (CUDA via FFI) + speedup number | ✅ done. **26× over multicore CPU** (46× single-thread) on an RTX 5070, exact |
 | **M2** | From-scratch **HNSW** index: recall@10 vs exact, latency | ✅ done (the centerpiece) |
 | **M3** | Scale to millions + **product quantization** + FAISS comparison | ✅ done |
 | **M4** | Polished demo (1M-scale), README diagram, results tables | ✅ done |
@@ -81,13 +81,14 @@ This table was measured at `522c4e4`, before the parallel-build fix in `bc5b4a0`
 
 A custom CUDA k-NN kernel (one block per query, base stored transposed for
 coalesced reads, block-level top-k reduction) accelerates the exact brute-force
-baseline. RTX 4070 Ti vs. Ryzen 7 7800X3D (8 cores / 16 threads), 1M × 128, 2,000 queries, k=10:
+baseline. RTX 5070 vs. Ryzen 7 7800X3D (8 cores / 16 threads), 1M × 128, 2,000 queries,
+k=10. Median of three runs on an otherwise idle machine:
 
 | | time | throughput | speedup |
 |---|-----:|-----------:|--------:|
-| CPU flat, 1 thread | 20.2 s | 99 q/s | 1× |
-| CPU flat, all cores | 10.8 s | 185 q/s | 1.9× |
-| **GPU exact (CUDA)** | **0.57 s** | **3,496 q/s** | **18.9× / 35.4×** |
+| CPU flat, 1 thread | 24.0 s | 83 q/s | 1× |
+| CPU flat, all cores | 13.6 s | 147 q/s | 1.8× |
+| **GPU exact (CUDA)** | **0.52 s** | **3,851 q/s** | **26.3× / 46.1×** |
 
 The GPU's top-k is cross-checked against the CPU index on every run, with
 **exact agreement (1.0000)** since both are exact algorithms, just at different
@@ -95,9 +96,9 @@ speeds. (Reproduce on an
 NVIDIA machine: `cargo run --release --example gpu_knn --features cuda`; see
 [docs/SETUP-GPU.md](docs/SETUP-GPU.md).)
 
-Both the card and the CPU in that row belonged to a machine I no longer have, so
-this table is a record of one run rather than something you can reproduce as
-written. It gets replaced after a re-measurement on current hardware.
+The GPU time is stable to within half a percent run to run; the single-threaded CPU
+baseline swings about 10%, which is why these are medians rather than a best-of.
+`bench/results/gpu.json` records the device, driver, CPU, and commit for the final run.
 
 ## Build & develop
 

@@ -1,0 +1,52 @@
+{
+  "schema_version": 1,
+  "provenance": {
+    "timestamp_utc": "2026-09-09T19:01:42Z",
+    "hostname": "CRIMSON",
+    "argv": ["target\\release\\examples\\gpu_knn.exe", "1000000", "128", "2000", "10"],
+    "cwd": "C:\\Users\\marti\\OneDrive\\Documents\\Projects\\SearchForge",
+    "os": {
+      "system": "windows",
+      "machine": "x86_64"
+    },
+    "cpu": {
+      "model": "AMD Ryzen 7 7800X3D 8-Core Processor",
+      "cores_logical": 16
+    },
+    "gpu": {
+      "device_index": 0,
+      "device_count": 1,
+      "name": "NVIDIA GeForce RTX 5070",
+      "compute_capability": "12.0",
+      "cuda_driver_version": "13.4",
+      "cuda_runtime_version": "13.4",
+      "total_vram_bytes": 12792037376
+    },
+    "git": {
+      "sha": "d8cf9f60e00c5e9456953a91333379b7249882d7",
+      "branch": "fix/blackwell-and-doc-accuracy",
+      "dirty": true
+    },
+    "versions": {
+      "rustc": "rustc 1.98.1 (48a229cea 2026-09-01)"
+    }
+  },
+  "workload": {
+    "n_base": 1000000,
+    "dim": 128,
+    "n_queries": 2000,
+    "k": 10,
+    "metric": "L2"
+  },
+  "results": {
+    "cpu_1t_seconds": 25.7565996,
+    "cpu_1t_qps": 77.65000159415453,
+    "cpu_mt_seconds": 13.2477098,
+    "cpu_mt_qps": 150.96949059074345,
+    "gpu_seconds": 0.5193242,
+    "gpu_qps": 3851.1588714718087,
+    "speedup_vs_cpu_1t": 49.596378524243626,
+    "speedup_vs_cpu_mt": 25.50951756147701,
+    "topk_agreement": 1
+  }
+}
