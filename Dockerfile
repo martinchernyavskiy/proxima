@@ -27,7 +27,7 @@ RUN maturin build --release --out /tmp/wheels \
 COPY demo ./demo
 COPY scripts ./scripts
 
-RUN python scripts/build_corpus.py --limit 30000 --config 20231101.simple --out data/wiki_demo \
+RUN python scripts/build_corpus.py --limit 100000 --config 20231101.simple --out data/wiki_demo \
  && python scripts/build_index.py --corpus data/wiki_demo --type hnsw
 
 ENV PROXIMA_CORPUS=data/wiki_demo

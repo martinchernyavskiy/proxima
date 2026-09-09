@@ -2,8 +2,8 @@
 
 The demo (`demo/app.py`) is a FastAPI server that embeds each query and searches
 an HNSW index over a Wikipedia corpus. The included [`Dockerfile`](../Dockerfile)
-builds the Rust engine, bakes a small (30k-article Simple-English Wikipedia)
-corpus + index at image-build time, and serves on port `7860`.
+builds the Rust engine, bakes the same 99k-article Simple-English Wikipedia
+corpus the benchmarks above use, plus its index, at image-build time, and serves on port `7860`.
 
 Because the query has to be embedded server-side, the image includes PyTorch +
 sentence-transformers, so the running container needs roughly 2 GB of RAM. That
@@ -35,7 +35,7 @@ Static Spaces remain free but cannot run a server.
    pinned: false
    ---
    ```
-5. HF builds the image (first build ~10–20 min: it compiles Rust, installs Torch, and embeds 30k articles) and serves at `https://huggingface.co/spaces/<your-username>/proxima`.
+5. HF builds the image (first build ~35–45 min: it compiles Rust, installs Torch, and embeds 99k articles) and serves at `https://huggingface.co/spaces/<your-username>/proxima`.
 
 **Notes**
 - The corpus is baked at build time, so restarts are fast. To change its size or source, edit the `build_corpus.py` line in the `Dockerfile` (e.g. `--limit 100000`, or `--config 20231101.en` for full English Wikipedia, which needs a larger image and more RAM).
