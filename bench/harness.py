@@ -6,6 +6,7 @@ import platform
 import socket
 import subprocess
 import sys
+import statistics
 import time
 from dataclasses import asdict, dataclass
 from datetime import datetime, timezone
@@ -18,6 +19,7 @@ from proxima import FlatIndex, Metric
 SCHEMA_VERSION = 1
 REPO_ROOT = Path(__file__).resolve().parent.parent
 LATENCY_SAMPLES = 10_000
+THROUGHPUT_TRIALS = 7
 LATENCY_SEED = 20240917
 
 
@@ -253,12 +255,16 @@ def measure_latency(index, queries: np.ndarray, k: int,
             float(times.mean()), int(samples))
 
 
-def measure_throughput(index, queries: np.ndarray, k: int, num_threads: int) -> float:
+def measure_throughput(index, queries: np.ndarray, k: int, num_threads: int,
+                       trials: int = THROUGHPUT_TRIALS) -> float:
     index.search_batch(queries[: min(64, len(queries))], k=k, num_threads=num_threads)
-    t0 = time.perf_counter()
-    index.search_batch(queries, k=k, num_threads=num_threads)
-    dt = time.perf_counter() - t0
-    return len(queries) / dt if dt > 0 else float("inf")
+    rates = []
+    for _ in range(max(1, trials)):
+        t0 = time.perf_counter()
+        index.search_batch(queries, k=k, num_threads=num_threads)
+        dt = time.perf_counter() - t0
+        rates.append(len(queries) / dt if dt > 0 else float("inf"))
+    return statistics.median(rates)
 
 
 def benchmark_index(name: str, index, queries: np.ndarray, k: int,

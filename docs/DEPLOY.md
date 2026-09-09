@@ -30,7 +30,7 @@ free, 16 GB RAM, no credit card, and purpose-built for this.
    pinned: false
    ---
    ```
-5. HF builds the image (first build ~10–20 min: it compiles Rust, installs Torch, and embeds 30k articles) and serves at `https://huggingface.co/spaces/<your-username>/proxima`. That URL is what you put on your résumé.
+5. HF builds the image (first build ~10–20 min: it compiles Rust, installs Torch, and embeds 30k articles) and serves at `https://huggingface.co/spaces/<your-username>/proxima`.
 
 **Notes**
 - The corpus is baked at build time, so restarts are fast. To change its size or source, edit the `build_corpus.py` line in the `Dockerfile` (e.g. `--limit 100000`, or `--config 20231101.en` for full English Wikipedia, which needs a larger image and more RAM).

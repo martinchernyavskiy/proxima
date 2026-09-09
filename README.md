@@ -4,7 +4,7 @@
 
 > Search by *meaning*, not keywords. Type "a quiet beach town in southern Europe" and get the most semantically similar items from a corpus of millions, in milliseconds. It's the same kind of retrieval that sits underneath vector databases and the RAG layer of most modern AI systems.
 
-Proxima is an **approximate nearest-neighbor (ANN) vector search engine**, built from the ground up. It has a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and a benchmark harness that checks recall, latency, and memory against exact ground truth and head-to-head against [FAISS](https://github.com/facebookresearch/faiss) on SIFT1M, matching its recall at every operating point, with comparable single-query latency and about 1.2× its multi-threaded throughput.
+Proxima is an **approximate nearest-neighbor (ANN) vector search engine**, built from the ground up. It has a hand-written **HNSW** graph index, an exact brute-force baseline, **product quantization** for memory compression, and a benchmark harness that checks recall, latency, and memory against exact ground truth and head-to-head against [FAISS](https://github.com/facebookresearch/faiss) on SIFT1M, matching its recall at every operating point and tracking its HNSW throughput to within about 10% either way (FAISS still leads clearly on batched exact-flat).
 
 🚀 **[Deploy the demo](docs/DEPLOY.md)** to a free hosted URL.
 
@@ -55,23 +55,23 @@ The canonical 1M-vector ANN benchmark (128-dim, **held-out** queries + exact gro
 
 | index | recall@10 | p50 (ms) | QPS (1t) | QPS (mt) | mem |
 |-------|----------:|---------:|---------:|---------:|----:|
-| **PX** Flat (exact) | 0.999 | 9.91 | 103 | 159 | 512 MB |
-| **PX** HNSW `ef=32` | 0.898 | 0.074 | 13,059 | **79,405** | 684 MB |
-| **PX** HNSW `ef=64` | 0.966 | 0.135 | 7,640 | **47,125** | 684 MB |
-| **PX** HNSW `ef=128` | 0.990 | 0.249 | 4,007 | **25,561** | 684 MB |
-| **PX** PQ `m=16` | 0.538 | 7.50 | 134 | 992 | **16 MB** |
-| FAISS Flat | 0.999 | 12.70 | 643 | 744 | 512 MB |
-| FAISS HNSW `ef=32` | 0.899 | 0.076 | 14,418 | 73,855 | 656 MB |
-| FAISS HNSW `ef=64` | 0.962 | 0.132 | 8,152 | 38,215 | 656 MB |
-| FAISS HNSW `ef=128` | 0.989 | 0.244 | 4,069 | 23,178 | 656 MB |
-| FAISS PQ `m=16` | 0.532 | 7.74 | 129 | 982 | 16 MB |
+| **PX** Flat (exact) | 0.999 | 9.94 | 103 | 158 | 512 MB |
+| **PX** HNSW `ef=32` | 0.904 | 0.074 | 13,075 | 84,274 | 685 MB |
+| **PX** HNSW `ef=64` | 0.966 | 0.140 | 7,237 | 40,694 | 685 MB |
+| **PX** HNSW `ef=128` | 0.991 | 0.257 | 3,969 | 25,547 | 685 MB |
+| **PX** PQ `m=16` | 0.538 | 7.67 | 126 | 955 | **16 MB** |
+| FAISS Flat | 0.999 | 13.41 | 596 | 782 | 512 MB |
+| FAISS HNSW `ef=32` | 0.898 | 0.077 | 14,115 | 77,396 | 656 MB |
+| FAISS HNSW `ef=64` | 0.962 | 0.136 | 7,880 | 45,091 | 656 MB |
+| FAISS HNSW `ef=128` | 0.988 | 0.251 | 3,950 | 24,019 | 656 MB |
+| FAISS PQ `m=16` | 0.532 | 8.13 | 121 | 957 | 16 MB |
 
 **Takeaways:**
 - **Recall matches FAISS** at every operating point: Proxima's HNSW graph and PQ codebooks are correct (recall is even marginally higher, e.g. 0.966 vs 0.962 at ef=64).
-- **Single-query latency is a wash; multi-threaded throughput runs ahead.** At ef=64 the p50 is 0.135 ms against FAISS's 0.132 ms, but across all cores Proxima sustains 47.1k QPS to FAISS's 38.2k. The same holds at ef=32 and ef=128. FAISS keeps a small edge single-threaded.
+- **Throughput is at parity, not ahead.** Across all cores the ratio to FAISS is 1.09× at ef=32, 0.90× at ef=64 and 1.06× at ef=128 — it lands on either side of even depending on the operating point, so the honest summary is a tie within noise rather than a win. Each figure is the median of 7 timed passes; a single pass moves them by more than the gap. FAISS keeps a small edge single-threaded.
 - **PQ compresses 512 MB down to 16 MB (32×)** with the same recall tradeoff as FAISS PQ.
-- **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free), finishing the full 1M-vector SIFT index in **41 s** against FAISS's 60 s.
-- **Where FAISS still wins, and why:** batched exact-flat throughput. FAISS uses a BLAS GEMM; Proxima uses a straightforward SIMD scan, about 6× slower on that path (643 vs 103 QPS). Single-query flat latency actually favours Proxima (9.9 ms vs 12.7 ms) — the GEMM only pays off once the batch is large. A blocked matmul would close it; it is not a correctness problem.
+- **HNSW build is parallelized** across cores (rayon, per-node locking; the query path stays lock-free), finishing the full 1M-vector SIFT index in **43 s** against FAISS's 57 s.
+- **Where FAISS still wins, and why:** batched exact-flat throughput. FAISS uses a BLAS GEMM; Proxima uses a straightforward SIMD scan, about 5× slower on that path (782 vs 158 QPS multi-threaded). Single-query flat latency actually favours Proxima (9.9 ms vs 13.4 ms) — the GEMM only pays off once the batch is large. A blocked matmul would close it; it is not a correctness problem.
 
 ![SIFT1M recall vs. latency: Proxima HNSW vs. FAISS HNSW](docs/assets/recall_latency_sift1m.svg)
 
@@ -88,7 +88,7 @@ k=10. Median of three runs on an otherwise idle machine:
 |---|-----:|-----------:|--------:|
 | CPU flat, 1 thread | 24.0 s | 83 q/s | 1× |
 | CPU flat, all cores | 13.6 s | 147 q/s | 1.8× |
-| **GPU exact (CUDA)** | **0.52 s** | **3,851 q/s** | **26.3× / 46.1×** |
+| **GPU exact (CUDA)** | **0.52 s** | **3,851 q/s** | **26.2× / 46.1×** |
 
 The GPU's top-k is cross-checked against the CPU index on every run, with
 **exact agreement (1.0000)** since both are exact algorithms, just at different

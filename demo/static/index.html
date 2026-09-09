@@ -215,7 +215,7 @@
     <p class="sub">
       Proxima does that <b>from scratch, in Rust</b>: no managed API, no vector database,
       no shortcuts for the search itself. Type a query below and watch a hand-written graph
-      index called HNSW navigate a million Wikipedia articles to find the closest match by
+      index called HNSW navigate a corpus of Wikipedia articles to find the closest match by
       <b>meaning</b>, not keywords.
     </p>
     <div class="proof" id="proof"></div>
@@ -264,7 +264,7 @@
       <div class="stat-grid">
         <div class="stat"><div class="stat-v">99%+</div><div class="stat-k">recall@10 vs. exact ground truth</div></div>
         <div class="stat"><div class="stat-v">&lt;1 ms</div><div class="stat-k">p50 latency over 1M vectors</div></div>
-        <div class="stat cmp"><div class="stat-v">~1.3×</div><div class="stat-k">of FAISS on speed, matching its recall</div></div>
+        <div class="stat cmp"><div class="stat-v">~1.2×</div><div class="stat-k">of FAISS’s multi-threaded throughput, matching its recall</div></div>
         <div class="stat"><div class="stat-v">32×</div><div class="stat-k">memory compression via product quantization</div></div>
       </div>
       <p class="h-note">Measured on SIFT1M (1M vectors, held-out queries, exact ground truth) against FAISS, on identical data.</p>
