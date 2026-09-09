@@ -27,7 +27,7 @@ Built in stages, each one a complete, working index before moving to the next.
 | Milestone | What | State |
 |-----------|------|-------|
 | **M0** | Exact (flat) brute-force search + embeddings + minimal demo, end-to-end | ✅ done |
-| **M1** | GPU exact search (CUDA via FFI) + speedup number | ✅ done. **26× over multicore CPU** (46× single-thread) on an RTX 5070, exact |
+| **M1** | GPU exact search (CUDA via FFI) + speedup number | ✅ done. **24× over multicore CPU** (44× single-thread) on an RTX 5070, exact |
 | **M2** | From-scratch **HNSW** index: recall@10 vs exact, latency | ✅ done (the centerpiece) |
 | **M3** | Scale to millions + **product quantization** + FAISS comparison | ✅ done |
 | **M4** | Polished demo (1M-scale), README diagram, results tables | ✅ done |
@@ -86,9 +86,9 @@ k=10. Median of three runs on an otherwise idle machine:
 
 | | time | throughput | speedup |
 |---|-----:|-----------:|--------:|
-| CPU flat, 1 thread | 24.0 s | 83 q/s | 1× |
-| CPU flat, all cores | 13.6 s | 147 q/s | 1.8× |
-| **GPU exact (CUDA)** | **0.52 s** | **3,851 q/s** | **26.2× / 46.1×** |
+| CPU flat, 1 thread | 24.9 s | 80 q/s | 1× |
+| CPU flat, all cores | 13.7 s | 146 q/s | 1.8× |
+| **GPU exact (CUDA)** | **0.57 s** | **3,537 q/s** | **24.2× / 44.0×** |
 
 The GPU's top-k is cross-checked against the CPU index on every run, with
 **exact agreement (1.0000)** since both are exact algorithms, just at different
@@ -96,9 +96,9 @@ speeds. (Reproduce on an
 NVIDIA machine: `cargo run --release --example gpu_knn --features cuda`; see
 [docs/SETUP-GPU.md](docs/SETUP-GPU.md).)
 
-The GPU time is stable to within half a percent run to run; the single-threaded CPU
-baseline swings about 10%, which is why these are medians rather than a best-of.
-`bench/results/gpu.json` records the device, driver, CPU, and commit for the final run.
+Every figure is the median of 5 timed runs taken inside one invocation, so
+`bench/results/gpu.json` holds exactly the numbers printed above along with the device,
+driver, CPU and commit that produced them.
 
 ## Build & develop
 

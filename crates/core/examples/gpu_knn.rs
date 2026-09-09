@@ -273,7 +273,7 @@ fn jobj(indent: usize, entries: &[(&str, String)]) -> String {
 
 #[allow(clippy::too_many_arguments)]
 fn build_json(argv: &[String], gpu: &GpuInfo, cpu: &str, cores: usize, n: usize, dim: usize,
-              nq: usize, k: usize, cpu1: f64, cpu_mt: f64, gpu_t: f64,
+              nq: usize, k: usize, cpu1: f64, cpu_mt: f64, gpu_t: f64, reps: usize,
               agreement: Option<f64>) -> String {
     let dirty = git(&["status", "--porcelain"]).map(|s| !s.is_empty());
     let os = jobj(4, &[
@@ -329,6 +329,7 @@ fn build_json(argv: &[String], gpu: &GpuInfo, cpu: &str, cores: usize, n: usize,
         ("gpu_qps", jnum(nq as f64 / gpu_t)),
         ("speedup_vs_cpu_1t", jnum(cpu1 / gpu_t)),
         ("speedup_vs_cpu_mt", jnum(cpu_mt / gpu_t)),
+        ("reps", jnum(reps as f64)),
         ("topk_agreement", agreement.map(jnum).unwrap_or_else(|| "null".to_string())),
     ]);
     let doc = jobj(0, &[
@@ -366,6 +367,7 @@ fn main() {
     let arg = |i: usize, def: usize| a.get(i).and_then(|s| s.parse().ok()).unwrap_or(def);
     let (n, dim, nq, k) = (arg(1, 1_000_000), arg(2, 128), arg(3, 2000), arg(4, 10));
     let device = arg(5, 0) as c_int;
+    let reps = arg(6, 3).max(1);
     let metric = Metric::L2;
 
     let gpu_info = GpuInfo::query(device);
@@ -397,22 +399,36 @@ fn main() {
     flat.add(&base);
     let (mut cids, mut cd) = (vec![0i64; nq * k], vec![0f32; nq * k]);
 
+    let median = |mut v: Vec<f64>| -> f64 {
+        v.sort_by(|a, b| a.partial_cmp(b).unwrap());
+        v[v.len() / 2]
+    };
+    let time_n = |f: &mut dyn FnMut()| -> f64 {
+        let mut runs = Vec::with_capacity(reps);
+        for _ in 0..reps {
+            let t = Instant::now();
+            f();
+            runs.push(t.elapsed().as_secs_f64());
+        }
+        median(runs)
+    };
+
     flat.search_batch(&queries, k, &mut cids, &mut cd, 1);
-    let t = Instant::now();
-    flat.search_batch(&queries, k, &mut cids, &mut cd, 1);
-    let cpu1 = t.elapsed().as_secs_f64();
+    let cpu1 = time_n(&mut || flat.search_batch(&queries, k, &mut cids, &mut cd, 1));
 
     flat.search_batch(&queries, k, &mut cids, &mut cd, 0);
-    let t = Instant::now();
-    flat.search_batch(&queries, k, &mut cids, &mut cd, 0);
-    let cpu_mt = t.elapsed().as_secs_f64();
+    let cpu_mt = time_n(&mut || flat.search_batch(&queries, k, &mut cids, &mut cd, 0));
 
     let gpu = CudaKnn::new(&base, dim, metric).expect("GPU init");
     let (mut gids, mut gd) = (vec![0i64; nq * k], vec![0f32; nq * k]);
     gpu.search(&queries, k, &mut gids, &mut gd).expect("GPU warmup");
-    let t = Instant::now();
-    gpu.search(&queries, k, &mut gids, &mut gd).expect("GPU search");
-    let gpu_t = t.elapsed().as_secs_f64();
+    let mut gpu_runs = Vec::with_capacity(reps);
+    for _ in 0..reps {
+        let t = Instant::now();
+        gpu.search(&queries, k, &mut gids, &mut gd).expect("GPU search");
+        gpu_runs.push(t.elapsed().as_secs_f64());
+    }
+    let gpu_t = median(gpu_runs);
 
     let mut agree = 0usize;
     for q in 0..nq {
@@ -425,6 +441,7 @@ fn main() {
     println!("  GPU exact           : {gpu_t:8.3} s   ({:>8.0} q/s)", nq as f64 / gpu_t);
     println!("\n  speedup vs CPU 1-thread : {:.1}x", cpu1 / gpu_t);
     println!("  speedup vs CPU all-core : {:.1}x", cpu_mt / gpu_t);
+    println!("  (medians over {reps} timed runs)");
     let agreement = if nq * k == 0 {
         println!("  GPU/CPU top-{k} agreement : n/a (nq={nq}, k={k}: nothing to compare)");
         None
@@ -436,7 +453,7 @@ fn main() {
     };
 
     let artifact = repo_root().join("bench").join("results").join("gpu.json");
-    let body = build_json(&a, &gpu_info, &cpu, cores, n, dim, nq, k, cpu1, cpu_mt, gpu_t,
+    let body = build_json(&a, &gpu_info, &cpu, cores, n, dim, nq, k, cpu1, cpu_mt, gpu_t, reps,
                           agreement);
     match write_artifact(&artifact, &body) {
         Ok(()) => println!("\n  wrote {}", artifact.display()),
