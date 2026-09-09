@@ -25,3 +25,4 @@ data/
 .DS_Store
 .vscode/
 .idea/
+docs/assets/*.png
