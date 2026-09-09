@@ -141,10 +141,25 @@ def plot_wiki(results: list[dict]) -> None:
     plt.close(fig)
 
 
+def load_results(path: Path) -> list[dict]:
+    data = json.loads(path.read_text())
+    if isinstance(data, list):
+        print(f"{path.name}: no provenance recorded (pre-envelope results file)")
+        return data
+    prov = data.get("provenance") or {}
+    git = prov.get("git") or {}
+    sha = git.get("sha") or "?"
+    dirty = " +dirty" if git.get("dirty") else ""
+    cpu = (prov.get("cpu") or {}).get("model") or "?"
+    print(f"{path.name}: {prov.get('hostname', '?')} ({cpu}) "
+          f"at {prov.get('timestamp_utc', '?')}, git {sha[:12]}{dirty}")
+    return data.get("results", [])
+
+
 def main() -> None:
     ASSETS.mkdir(parents=True, exist_ok=True)
-    sift = json.loads((HERE / "results" / "sift1m.json").read_text())
-    wiki = json.loads((HERE / "results" / "wiki_simple_100k.json").read_text())
+    sift = load_results(HERE / "results" / "sift1m.json")
+    wiki = load_results(HERE / "results" / "wiki_simple_100k.json")
     plot_sift1m(sift)
     plot_wiki(wiki)
 

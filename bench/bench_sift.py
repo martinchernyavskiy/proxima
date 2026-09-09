@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -12,7 +11,8 @@ HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
 from datasets import load_sift
-from harness import benchmark_index, exact_ground_truth, format_table
+from harness import (LATENCY_SAMPLES, benchmark_index, exact_ground_truth,
+                     format_table, write_results)
 
 from proxima import FlatIndex, HnswIndex, Metric, PqIndex
 
@@ -29,12 +29,16 @@ def main() -> None:
     p.add_argument("--ef", type=str, default="32,64,128")
     p.add_argument("--pq-m", type=int, default=16, help="PQ subspaces")
     p.add_argument("--no-faiss", action="store_true")
+    p.add_argument("--latency-samples", type=int, default=LATENCY_SAMPLES,
+                   help="single-query timings sampled per index")
     p.add_argument("--json", type=str, default=None)
     args = p.parse_args()
     if args.n < 0:
         p.error("--n must be >= 0")
     if args.nq < 0:
         p.error("--nq must be >= 0")
+    if args.latency_samples < 0:
+        p.error("--latency-samples must be >= 0")
 
     ds = load_sift(args.root)
     subset = bool(args.n and args.n < len(ds.base))
@@ -58,52 +62,57 @@ def main() -> None:
     def build(label, fn):
         t0 = time.perf_counter()
         idx = fn()
-        print(f"  built {label} in {time.perf_counter() - t0:.1f}s", flush=True)
-        return idx
+        build_s = time.perf_counter() - t0
+        print(f"  built {label} in {build_s:.1f}s", flush=True)
+        return idx, build_s
 
-    px_flat = build("PX Flat", lambda: _add(FlatIndex(dim=dim, metric=metric), base))
-    results.append(benchmark_index("PX Flat (exact)", px_flat, queries, args.k, gt))
+    def record(label, index, build_s):
+        results.append(benchmark_index(label, index, queries, args.k, gt,
+                                       latency_samples=args.latency_samples,
+                                       build_seconds=build_s))
 
-    px_hnsw = build(f"PX HNSW (M={args.m})",
-                    lambda: _add(HnswIndex(dim=dim, metric=metric, m=args.m,
-                                           ef_construction=args.ef_construction), base))
+    px_flat, t_flat = build("PX Flat",
+                            lambda: _add(FlatIndex(dim=dim, metric=metric), base))
+    record("PX Flat (exact)", px_flat, t_flat)
+
+    px_hnsw, t_hnsw = build(f"PX HNSW (M={args.m})",
+                            lambda: _add(HnswIndex(dim=dim, metric=metric, m=args.m,
+                                                   ef_construction=args.ef_construction), base))
     for ef in efs:
         px_hnsw.ef_search = ef
-        results.append(benchmark_index(f"PX HNSW(ef={ef})", px_hnsw, queries, args.k, gt))
+        record(f"PX HNSW(ef={ef})", px_hnsw, t_hnsw)
 
     def make_pq():
         idx = PqIndex(dim=dim, metric=metric, m=args.pq_m)
         idx.train(np.ascontiguousarray(train, dtype=np.float32))
         idx.add(base)
         return idx
-    px_pq = build(f"PX PQ (m={args.pq_m})", make_pq)
-    results.append(benchmark_index(f"PX PQ(m={args.pq_m})", px_pq, queries, args.k, gt))
+    px_pq, t_pq = build(f"PX PQ (m={args.pq_m})", make_pq)
+    record(f"PX PQ(m={args.pq_m})", px_pq, t_pq)
     print(f"  PX PQ compression: {px_pq.compression_ratio:.1f}x "
           f"({px_pq.raw_bytes / 1e6:.0f}MB -> {px_pq.memory_bytes / 1e6:.1f}MB)")
 
     if not args.no_faiss:
         import faiss_compare as fc
 
-        f_flat = build("FAISS Flat", lambda: fc.build_flat(base, ds.metric))
-        results.append(benchmark_index("FAISS Flat", f_flat, queries, args.k, gt))
+        f_flat, t_f_flat = build("FAISS Flat", lambda: fc.build_flat(base, ds.metric))
+        record("FAISS Flat", f_flat, t_f_flat)
 
-        f_hnsw = build(f"FAISS HNSW (M={args.m})",
-                       lambda: fc.build_hnsw(base, ds.metric, m=args.m,
-                                             ef_construction=args.ef_construction))
+        f_hnsw, t_f_hnsw = build(f"FAISS HNSW (M={args.m})",
+                                 lambda: fc.build_hnsw(base, ds.metric, m=args.m,
+                                                       ef_construction=args.ef_construction))
         for ef in efs:
             f_hnsw.ef_search = ef
-            results.append(benchmark_index(f"FAISS HNSW(ef={ef})", f_hnsw, queries, args.k, gt))
+            record(f"FAISS HNSW(ef={ef})", f_hnsw, t_f_hnsw)
 
-        f_pq = build(f"FAISS PQ (m={args.pq_m})",
-                     lambda: fc.build_pq(base, ds.metric, m=args.pq_m, train=train))
-        results.append(benchmark_index(f"FAISS PQ(m={args.pq_m})", f_pq, queries, args.k, gt))
+        f_pq, t_f_pq = build(f"FAISS PQ (m={args.pq_m})",
+                             lambda: fc.build_pq(base, ds.metric, m=args.pq_m, train=train))
+        record(f"FAISS PQ(m={args.pq_m})", f_pq, t_f_pq)
 
     print()
     print(format_table(results))
     if args.json:
-        Path(args.json).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.json).write_text(json.dumps([r.as_dict() for r in results], indent=2))
-        print(f"\nwrote {args.json}")
+        print(f"\nwrote {write_results(args.json, results)}")
 
 
 def _add(index, vectors):

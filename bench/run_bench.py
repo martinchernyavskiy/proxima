@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import argparse
-import json
 import sys
 import time
 from pathlib import Path
@@ -11,7 +10,8 @@ import numpy as np
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 
-from harness import benchmark_index, exact_ground_truth, format_table
+from harness import (LATENCY_SAMPLES, benchmark_index, exact_ground_truth,
+                     format_table, write_results)
 
 from proxima import FlatIndex, HnswIndex, Metric
 from proxima.store import load_corpus
@@ -40,8 +40,12 @@ def main() -> None:
     p.add_argument("--ef", type=str, default="16,32,64,128",
                    help="comma-separated ef_search sweep")
     p.add_argument("--no-hnsw", action="store_true", help="exact baseline only")
+    p.add_argument("--latency-samples", type=int, default=LATENCY_SAMPLES,
+                   help="single-query timings sampled per index")
     p.add_argument("--json", type=str, default=None, help="also write results JSON")
     args = p.parse_args()
+    if args.latency_samples < 0:
+        p.error("--latency-samples must be >= 0")
 
     all_vectors, metric_name = load_base(args)
     metric = getattr(Metric, metric_name)
@@ -60,8 +64,12 @@ def main() -> None:
 
     results = []
     flat = FlatIndex(dim=base.shape[1], metric=metric)
+    t0 = time.perf_counter()
     flat.add(base)
-    results.append(benchmark_index("FlatIndex (exact)", flat, queries, args.k, gt))
+    flat_build_s = time.perf_counter() - t0
+    results.append(benchmark_index("FlatIndex (exact)", flat, queries, args.k, gt,
+                                   latency_samples=args.latency_samples,
+                                   build_seconds=flat_build_s))
 
     if not args.no_hnsw:
         print(f"building HNSW (M={args.m}, ef_construction={args.ef_construction}) ...",
@@ -75,15 +83,15 @@ def main() -> None:
               f"({hnsw.size / build_s:,.0f}/s), index {hnsw.memory_bytes / 1e6:.0f} MB")
         for ef in (int(x) for x in args.ef.split(",")):
             hnsw.ef_search = ef
-            results.append(benchmark_index(f"HNSW(ef={ef})", hnsw, queries, args.k, gt))
+            results.append(benchmark_index(f"HNSW(ef={ef})", hnsw, queries, args.k, gt,
+                                           latency_samples=args.latency_samples,
+                                           build_seconds=build_s))
 
     print()
     print(format_table(results))
 
     if args.json:
-        Path(args.json).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.json).write_text(json.dumps([r.as_dict() for r in results], indent=2))
-        print(f"\nwrote {args.json}")
+        print(f"\nwrote {write_results(args.json, results)}")
 
 
 if __name__ == "__main__":
