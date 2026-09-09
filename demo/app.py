@@ -90,6 +90,10 @@ def search(q: str, k: int = Query(10, ge=0, le=100)) -> JSONResponse:
     })
 
 
+@app.api_route("/healthz", methods=["GET", "HEAD"])
+def healthz():
+    return {"status": "ok"}
+
 @app.get("/")
 def root() -> FileResponse:
     return FileResponse(STATIC / "index.html")
